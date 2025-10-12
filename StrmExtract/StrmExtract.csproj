@@ -1,23 +1,22 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
+
   <PropertyGroup>
-    <TargetFrameworks>netstandard2.0;</TargetFrameworks>
+    <TargetFramework>net8.0</TargetFramework>
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <FileVersion>1.0.0.0</FileVersion>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
+
   <ItemGroup>
-    <None Remove="Images\thumb.png" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" />
   </ItemGroup>
+
   <ItemGroup>
-    <EmbeddedResource Include="Images\thumb.png" />
+    <Reference Include="MediaBrowser.Common" HintPath="D:\soft\jellyfin\MediaBrowser.Common.dll" />
+    <Reference Include="MediaBrowser.Controller" HintPath="D:\soft\jellyfin\MediaBrowser.Controller.dll" />
+    <Reference Include="MediaBrowser.Model" HintPath="D:\soft\jellyfin\MediaBrowser.Model.dll" />
+    <Reference Include="Jellyfin.Data" HintPath="D:\soft\jellyfin\Jellyfin.Data.dll" />
+    <Reference Include="Jellyfin.Server.Implementations" HintPath="D:\soft\jellyfin\Jellyfin.Server.Implementations.dll" />
   </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="mediabrowser.server.core" Version="4.7.9" />
-    <PackageReference Include="System.Memory" Version="4.5.5" />
-  </ItemGroup>
-  <ItemGroup>
-    <Folder Include="Properties\" />
-  </ItemGroup>
-  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-    <Exec Command="xcopy &quot;$(TargetPath)&quot; &quot;%25AppData%25\Emby-Server\programdata\plugins\&quot; /y" />
-  </Target>
+
 </Project>
