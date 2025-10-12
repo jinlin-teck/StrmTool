@@ -1,156 +1,157 @@
-﻿using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Model.IO;
-using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Tasks;
 using System;
 using System.Collections.Generic;
-using System.Text;
-using System.Threading.Tasks;
+using System.Linq;
 using System.Threading;
-using MediaBrowser.Model.MediaInfo;
-using MediaBrowser.Model.Dto;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using MediaBrowser.Controller.Entities;
-using MediaBrowser.Model.Configuration;
 using MediaBrowser.Controller.Providers;
-using System.Collections;
+using Jellyfin.Data.Enums;
+using MediaBrowser.Model.Entities;
 
 namespace StrmExtract
 {
     public class ExtractTask : IScheduledTask
     {
-        private readonly ILogger _logger;
+        private readonly ILogger<ExtractTask> _logger;
         private readonly ILibraryManager _libraryManager;
         private readonly IFileSystem _fileSystem;
-        private readonly ILibraryMonitor _libraryMonitor;
-        private readonly IMediaProbeManager _mediaProbeManager;
 
-        public ExtractTask(ILibraryManager libraryManager, 
-            ILogger logger, 
-            IFileSystem fileSystem,
-            ILibraryMonitor libraryMonitor,
-            IMediaProbeManager prob)
+        public ExtractTask(
+            ILibraryManager libraryManager,
+            ILogger<ExtractTask> logger,
+            IFileSystem fileSystem)
         {
             _libraryManager = libraryManager;
             _logger = logger;
             _fileSystem = fileSystem;
-            _libraryMonitor = libraryMonitor;
-            _mediaProbeManager = prob;
         }
 
-        public async Task Execute(CancellationToken cancellationToken, IProgress<double> progress)
+        public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
         {
-            _logger.Info("StrmExtract - Task Execute");
+            _logger.LogInformation("StrmExtract - Starting strm file scan...");
 
-            InternalItemsQuery query = new InternalItemsQuery();
-
-            query.HasPath = true;
-            query.HasContainer = false;
-            query.ExcludeItemTypes = new string[] { "Folder", "CollectionFolder", "UserView", "Series", "Season", "Trailer", "Playlist" };
-
-            BaseItem[] results = _libraryManager.GetItemList(query);
-            _logger.Info("StrmExtract - Number of items before : " + results.Length);
-            List<BaseItem> items = new List<BaseItem>();
-            foreach(BaseItem item in  results)
+            var query = new InternalItemsQuery
             {
-                if(!string.IsNullOrEmpty(item.Path) &&
-                    item.Path.EndsWith(".strm", StringComparison.InvariantCultureIgnoreCase) &&
-                    item.GetMediaStreams().Count == 0)
+                Recursive = true
+            };
+
+            var allItems = _libraryManager.GetItemList(query)
+                .Where(i => i.Path?.EndsWith(".strm", StringComparison.OrdinalIgnoreCase) == true)
+                .ToList();
+
+            _logger.LogInformation("StrmExtract - Found {Count} strm files in library", allItems.Count);
+
+            // 过滤出需要处理的文件
+            var strmItems = allItems
+                .Where(i =>
                 {
-                    items.Add(item);
-                }
-                else
-                {
-                    _logger.Info("StrmExtract - Item dropped : " + item.Name + " - " + item.Path + " - " + item.GetType() + " - " + item.GetMediaStreams().Count);
-                }
+                    var streams = i.GetMediaStreams() ?? new List<MediaStream>();
+                    bool hasVideo = streams.Any(s => s.Type == MediaStreamType.Video);
+                    bool hasAudio = streams.Any(s => s.Type == MediaStreamType.Audio);
+                    return !hasVideo || !hasAudio;
+                })
+                .ToList();
+
+            _logger.LogInformation("StrmExtract - {Count} strm files need metadata refresh", strmItems.Count);
+
+            if (strmItems.Count == 0)
+            {
+                progress.Report(100);
+                _logger.LogInformation("StrmExtract - Nothing to process, task complete.");
+                return;
             }
 
-            _logger.Info("StrmExtract - Number of items after : " + items.Count);
+            var directoryService = new DirectoryService(_fileSystem);
+            var options = new MetadataRefreshOptions(directoryService)
+            {
+                EnableRemoteContentProbe = true,
+                ReplaceAllMetadata = true,
+                MetadataRefreshMode = MetadataRefreshMode.ValidationOnly,
+                RegenerateTrickplay = false,
+                ReplaceAllImages = false,
+                ImageRefreshMode = MetadataRefreshMode.None
+            };
 
-            double total = items.Count;
-            int current = 0;
-            foreach(BaseItem item in items)
+            int processed = 0;
+            int total = strmItems.Count;
+
+            // 顺序处理，避免触发远程服务器风控
+            foreach (var item in strmItems)
             {
                 if (cancellationToken.IsCancellationRequested)
                 {
-                    _logger.Info("StrmExtract - Task Cancelled");
+                    _logger.LogInformation("StrmExtract - Task was cancelled");
                     break;
                 }
-                double percent_done = (current / total) * 100;
-                progress.Report(percent_done);
 
-                MetadataRefreshOptions options = new MetadataRefreshOptions(_fileSystem);
-                options.EnableRemoteContentProbe = true;
-                options.ReplaceAllMetadata = true;
-                options.EnableThumbnailImageExtraction = false;
-                options.ImageRefreshMode = MetadataRefreshMode.ValidationOnly;
-                options.MetadataRefreshMode = MetadataRefreshMode.ValidationOnly;
-                options.ReplaceAllImages = false;
+                try
+                {
+                    _logger.LogDebug("StrmExtract - Processing {Name}", item.Name);
 
-                ItemUpdateType resp = await item.RefreshMetadata(options, cancellationToken);
+                    var beforeStreams = item.GetMediaStreams() ?? new List<MediaStream>();
+                    _logger.LogTrace("StrmExtract - Before: {Count} streams", beforeStreams.Count);
 
-                _logger.Info("StrmExtract - " + current + "/" + total + " - " + item.Path);
+                    var result = await item.RefreshMetadata(options, cancellationToken);
 
-                //Thread.Sleep(5000);
-                current++;
+                    var afterStreams = item.GetMediaStreams() ?? new List<MediaStream>();
+                    bool hasVideo = afterStreams.Any(s => s.Type == MediaStreamType.Video);
+                    bool hasAudio = afterStreams.Any(s => s.Type == MediaStreamType.Audio);
+
+                    _logger.LogInformation(
+                        "StrmExtract - {Name}: Refresh done. Streams {Before}→{After}. Video:{Video}, Audio:{Audio}",
+                        item.Name,
+                        beforeStreams.Count,
+                        afterStreams.Count,
+                        hasVideo,
+                        hasAudio
+                    );
+
+                    if (!hasVideo || !hasAudio)
+                    {
+                        _logger.LogWarning("StrmExtract - {Name} may still lack full media info", item.Name);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "StrmExtract - Error processing {Name} ({Path})", item.Name, item.Path);
+                }
+
+                processed++;
+                double percent = (double)processed / total * 100;
+                progress.Report(percent);
+
+                // 添加延迟，避免对远程服务器造成压力
+                if (processed < total) // 最后一个文件不需要延迟
+                {
+                    await Task.Delay(1000, cancellationToken);
+                }
             }
 
-            progress.Report(100.0);
-            _logger.Info("StrmExtract - Task Complete");
-
-            /*
-            LibraryOptions lib_options = new LibraryOptions();
-            List<MediaSourceInfo> sources = item.GetMediaSources(true, true, lib_options);
-
-            _logger.Info("StrmExtract - GetMediaSources : " + sources.Count);
-
-            MediaInfoRequest request = new MediaInfoRequest();
-
-            MediaSourceInfo mediaSource = sources[0];
-            request.MediaSource = mediaSource;
-
-            _logger.Info("StrmExtract - GetMediaInfo");
-            MediaInfo info = await _mediaProbeManager.GetMediaInfo(request, cancellationToken);
-
-            _logger.Info("StrmExtract - Extracting Strm info " + info);
-
-            _logger.Info("StrmExtract - Extracting Strm info : url - " + info.DirectStreamUrl);
-            _logger.Info("StrmExtract - Extracting Strm info : runtime - " + info.RunTimeTicks);
-            */
+            progress.Report(100);
+            _logger.LogInformation("StrmExtract - Task complete. Successfully processed {Processed}/{Total} strm files.", 
+                processed, total);
         }
 
-        public string Category
-        {
-            get { return "Strm Extract"; }
-        }
-
-        public string Key
-        {
-            get { return "StrmExtractTask"; }
-        }
-
-        public string Description
-        {
-            get { return "Run Strm Media Info Extraction"; }
-        }
-
-        public string Name
-        {
-            get { return "Process Strm targets"; }
-        }
+        public string Category => "Library";
+        public string Key => "StrmExtractTask";
+        public string Description => "Extract media technical information (codec, resolution, subtitles) from strm files";
+        public string Name => "Extract Strm Media Info";
 
         public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
         {
             return new[]
+            {
+                new TaskTriggerInfo
                 {
-                    new TaskTriggerInfo
-                    {
-                        Type = TaskTriggerInfo.TriggerDaily,
-                        TimeOfDayTicks = TimeSpan.FromHours(3).Ticks,
-                        MaxRuntimeTicks = TimeSpan.FromHours(24).Ticks
-                    }
-                };
+                    Type = TaskTriggerInfo.TriggerDaily,
+                    TimeOfDayTicks = TimeSpan.FromHours(3).Ticks,
+                    MaxRuntimeTicks = TimeSpan.FromHours(24).Ticks
+                }
+            };
         }
     }
 }
