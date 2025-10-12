@@ -45,7 +45,6 @@ namespace StrmExtract
 
             _logger.LogInformation("StrmExtract - Found {Count} strm files in library", allItems.Count);
 
-            // 过滤出需要处理的文件
             var strmItems = allItems
                 .Where(i =>
                 {
