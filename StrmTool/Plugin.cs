@@ -4,13 +4,13 @@ using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
 using System;
 
-namespace StrmExtract
+namespace StrmTool
 {
     public class Plugin : BasePlugin<PluginConfiguration>
     {
         public static Plugin Instance { get; private set; }
-        public static string PluginName = "Strm Extract";
-        private Guid _id = new Guid("6107fc8c-443a-4171-b70e-7590658706d8");
+        public static string PluginName = "Strm Tool";
+        private Guid _id = new Guid("6107fc8c-883a-4171-b70e-7590658706d8");
 
         public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer) : base(applicationPaths, xmlSerializer)
         {
