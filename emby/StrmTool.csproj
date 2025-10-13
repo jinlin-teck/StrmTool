@@ -5,6 +5,7 @@
     <FileVersion>1.0.0.0</FileVersion>
     <RootNamespace>StrmTool</RootNamespace>
     <AssemblyName>StrmTool</AssemblyName>
+    <IncludeSourceRevisionInInformationalVersion>true</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
   <ItemGroup>
     <None Remove="Images\thumb.png" />
@@ -13,8 +14,12 @@
     <EmbeddedResource Include="Images\thumb.png" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="mediabrowser.server.core" Version="4.7.9" />
+    <PackageReference Include="mediabrowser.server.core" Version="4.8.5" />
     <PackageReference Include="System.Memory" Version="4.5.5" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>    
   </ItemGroup>
   <ItemGroup>
     <Folder Include="Properties\" />
