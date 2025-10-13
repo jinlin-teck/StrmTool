@@ -12,7 +12,7 @@ using MediaBrowser.Controller.Providers;
 using Jellyfin.Data.Enums;
 using MediaBrowser.Model.Entities;
 
-namespace StrmExtract
+namespace StrmTool
 {
     public class ExtractTask : IScheduledTask
     {
@@ -32,7 +32,7 @@ namespace StrmExtract
 
         public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
         {
-            _logger.LogInformation("StrmExtract - Starting strm file scan...");
+            _logger.LogInformation("StrmTool - Starting strm file scan...");
 
             var query = new InternalItemsQuery
             {
@@ -43,7 +43,7 @@ namespace StrmExtract
                 .Where(i => i.Path?.EndsWith(".strm", StringComparison.OrdinalIgnoreCase) == true)
                 .ToList();
 
-            _logger.LogInformation("StrmExtract - Found {Count} strm files in library", allItems.Count);
+            _logger.LogInformation("StrmTool - Found {Count} strm files in library", allItems.Count);
 
             var strmItems = allItems
                 .Where(i =>
@@ -55,12 +55,12 @@ namespace StrmExtract
                 })
                 .ToList();
 
-            _logger.LogInformation("StrmExtract - {Count} strm files need metadata refresh", strmItems.Count);
+            _logger.LogInformation("StrmTool - {Count} strm files need metadata refresh", strmItems.Count);
 
             if (strmItems.Count == 0)
             {
                 progress.Report(100);
-                _logger.LogInformation("StrmExtract - Nothing to process, task complete.");
+                _logger.LogInformation("StrmTool - Nothing to process, task complete.");
                 return;
             }
 
@@ -83,16 +83,16 @@ namespace StrmExtract
             {
                 if (cancellationToken.IsCancellationRequested)
                 {
-                    _logger.LogInformation("StrmExtract - Task was cancelled");
+                    _logger.LogInformation("StrmTool - Task was cancelled");
                     break;
                 }
 
                 try
                 {
-                    _logger.LogDebug("StrmExtract - Processing {Name}", item.Name);
+                    _logger.LogDebug("StrmTool - Processing {Name}", item.Name);
 
                     var beforeStreams = item.GetMediaStreams() ?? new List<MediaStream>();
-                    _logger.LogTrace("StrmExtract - Before: {Count} streams", beforeStreams.Count);
+                    _logger.LogTrace("StrmTool - Before: {Count} streams", beforeStreams.Count);
 
                     var result = await item.RefreshMetadata(options, cancellationToken);
 
@@ -101,7 +101,7 @@ namespace StrmExtract
                     bool hasAudio = afterStreams.Any(s => s.Type == MediaStreamType.Audio);
 
                     _logger.LogInformation(
-                        "StrmExtract - {Name}: Refresh done. Streams {Before}→{After}. Video:{Video}, Audio:{Audio}",
+                        "StrmTool - {Name}: Refresh done. Streams {Before}→{After}. Video:{Video}, Audio:{Audio}",
                         item.Name,
                         beforeStreams.Count,
                         afterStreams.Count,
@@ -111,12 +111,12 @@ namespace StrmExtract
 
                     if (!hasVideo || !hasAudio)
                     {
-                        _logger.LogWarning("StrmExtract - {Name} may still lack full media info", item.Name);
+                        _logger.LogWarning("StrmTool - {Name} may still lack full media info", item.Name);
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "StrmExtract - Error processing {Name} ({Path})", item.Name, item.Path);
+                    _logger.LogError(ex, "StrmTool - Error processing {Name} ({Path})", item.Name, item.Path);
                 }
 
                 processed++;
@@ -131,12 +131,12 @@ namespace StrmExtract
             }
 
             progress.Report(100);
-            _logger.LogInformation("StrmExtract - Task complete. Successfully processed {Processed}/{Total} strm files.", 
+            _logger.LogInformation("StrmTool - Task complete. Successfully processed {Processed}/{Total} strm files.", 
                 processed, total);
         }
 
         public string Category => "Library";
-        public string Key => "StrmExtractTask";
+        public string Key => "StrmToolTask";
         public string Description => "Extract media technical information (codec, resolution, subtitles) from strm files";
         public string Name => "Extract Strm Media Info";
 
