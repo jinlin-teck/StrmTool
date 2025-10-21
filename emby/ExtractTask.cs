@@ -38,6 +38,9 @@ namespace StrmTool
             _fileSystem = fileSystem;
             _libraryMonitor = libraryMonitor;
             _mediaProbeManager = prob;
+
+            // 在任务创建时注册事件处理器
+            RegisterEventHandlers();
         }
 
         public async Task Execute(CancellationToken cancellationToken, IProgress<double> progress)
@@ -159,6 +162,20 @@ namespace StrmTool
                     MaxRuntimeTicks = TimeSpan.FromHours(24).Ticks
                 }
             };
+        }
+
+        private void RegisterEventHandlers()
+        {
+            try
+            {
+                var eventHandler = new ItemAddedEventHandler(_logger, _libraryManager, _fileSystem);
+                _libraryManager.ItemAdded += eventHandler.OnItemAdded;
+                _logger.Info("StrmTool - Item added event handler registered successfully");
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"StrmTool - Error registering event handlers: {ex.Message}");
+            }
         }
     }
 }
