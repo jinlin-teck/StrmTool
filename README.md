@@ -1,7 +1,7 @@
 # StrmTool for Jellyfin
 
 1. 功能：jellyfin插件，提取strm文件的媒体信息，补充完整的媒体信息并加速strm媒体文件的起播速度
-2. 编译环境：net8.0
-3. 没有找到jellyfin适配的NuGet包，使用了本地部署jellyfin的dll文件
-4. 只测试了jellyfin 10.10.7版本，其他版本未测试
-5. 使用方法：在jellyfin的`plugin`目录新建一个插件文件夹，将`StrmTool.dll`放入，重启jellyfin server
+2. 编译环境：net9.0
+3. 只测试了jellyfin 10.11.0版本，其他版本请自行测试
+4. 使用方法：在jellyfin的`plugin`目录新建一个插件文件夹，将`StrmTool.dll`放入，重启jellyfin server，在jellyfin后台计划任务可看到`Strm Tool`栏目下的`Extract Strm Media Info`计划任务
+5. 下载dll文件注意版本，emby就下载emby版本的dll文件，jellyfin的下载jellyfin版本
