@@ -21,7 +21,8 @@ namespace StrmTool
         {
             get
             {
-                return "Extracts info from Strm targets";
+                var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+                return $"Extracts info from Strm targets (v{version})";
             }
         }
 
