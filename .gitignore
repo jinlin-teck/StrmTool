@@ -3,6 +3,8 @@
 *.user
 *.sln.docstates
 
+AGENTS.md
+
 [Dd]ebug/
 [Rr]elease/
 x64/
