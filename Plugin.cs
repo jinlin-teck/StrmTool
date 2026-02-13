@@ -39,14 +39,14 @@ namespace StrmTool
 
         public IEnumerable<PluginPageInfo> GetPages()
         {
-            return
-            [
+            return new[]
+            {
                 new PluginPageInfo
                 {
                     Name = Name,
                     EmbeddedResourcePath = "StrmTool.Configuration.configPage.html"
                 }
-            ];
+            };
         }
     }
 }

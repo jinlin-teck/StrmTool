@@ -1,6 +1,3 @@
-using MediaBrowser.Controller.Library;
-using MediaBrowser.Model.IO;
-using MediaBrowser.Model.Tasks;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -8,12 +5,15 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.IO;
+using MediaBrowser.Model.Tasks;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Providers;
-using Jellyfin.Data.Enums;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
+using Jellyfin.Data.Enums;
 
 namespace StrmTool
 {
