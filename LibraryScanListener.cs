@@ -48,13 +48,13 @@ namespace StrmTool
           // 异步执行媒体信息提取，避免阻塞库扫描流程
           _ = Task.Run(async () =>
           {
-            try
-            {
-              // 延迟确保 Jellyfin 完成初始化
-              await Task.Delay(1000);
+             try
+             {
+               // 延迟确保 Jellyfin 完成初始化
+               await Task.Delay(_config.RefreshDelayMs);
 
-              await _extractTask.ExtractSingleItemAsync(item, CancellationToken.None);
-            }
+               await _extractTask.ExtractSingleItemAsync(item, CancellationToken.None);
+             }
             catch (Exception ex)
             {
               _logger.LogError(ex, "StrmTool - Error extracting single item: {Name}", item.Name);
