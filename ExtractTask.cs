@@ -9,8 +9,13 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.MediaEncoding;
+using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Controller.Providers;
+using MediaBrowser.Model.Dto;
+using MediaBrowser.Model.Dlna;
 using MediaBrowser.Model.IO;
+using MediaBrowser.Model.MediaInfo;
 using MediaBrowser.Model.Tasks;
 using MediaBrowser.Model.Entities;
 using Jellyfin.Data.Enums;
@@ -22,16 +27,22 @@ namespace StrmTool
         private readonly ILogger<ExtractTask> _logger;
         private readonly ILibraryManager _libraryManager;
         private readonly IFileSystem _fileSystem;
+        private readonly IMediaEncoder _mediaEncoder;
+        private readonly IMediaStreamRepository _mediaStreamRepository;
         private readonly PluginConfiguration _config;
 
         public ExtractTask(
             ILibraryManager libraryManager,
             ILogger<ExtractTask> logger,
-            IFileSystem fileSystem)
+            IFileSystem fileSystem,
+            IMediaEncoder mediaEncoder,
+            IMediaStreamRepository mediaStreamRepository)
         {
             _libraryManager = libraryManager;
             _logger = logger;
             _fileSystem = fileSystem;
+            _mediaEncoder = mediaEncoder;
+            _mediaStreamRepository = mediaStreamRepository;
             _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
         }
 
@@ -198,17 +209,6 @@ namespace StrmTool
         /// </summary>
         private async Task ProcessStrmFiles(List<BaseItem> strmItems, IProgress<double> progress, CancellationToken cancellationToken)
         {
-            var directoryService = new DirectoryService(_fileSystem);
-            var options = new MetadataRefreshOptions(directoryService)
-            {
-                EnableRemoteContentProbe = true,
-                ReplaceAllMetadata = true,
-                MetadataRefreshMode = MetadataRefreshMode.ValidationOnly,
-                RegenerateTrickplay = false,
-                ReplaceAllImages = false,
-                ImageRefreshMode = MetadataRefreshMode.None
-            };
-
             int processed = 0;
             int total = strmItems.Count;
 
@@ -227,14 +227,15 @@ namespace StrmTool
                     var beforeStreams = GetItemMediaStreams(item);
                     _logger.LogTrace("StrmTool - Before: {Count} streams", beforeStreams.Count);
 
-                    var result = await item.RefreshMetadata(options, cancellationToken);
+                    // 直接探测媒体流，不调用任何提供商或图像更新
+                    await ProbeStrmMediaStreams(item, cancellationToken);
 
                     var afterStreams = GetItemMediaStreams(item);
                     bool hasVideo = afterStreams.Any(s => s.Type == MediaStreamType.Video);
                     bool hasAudio = afterStreams.Any(s => s.Type == MediaStreamType.Audio);
 
                     _logger.LogInformation(
-                        "StrmTool - {Name}: Refresh done. Streams {Before}→{After}. Video:{Video}, Audio:{Audio}",
+                        "StrmTool - {Name}: Probe done. Streams {Before}→{After}. Video:{Video}, Audio:{Audio}",
                         item.Name,
                         beforeStreams.Count,
                         afterStreams.Count,
@@ -266,6 +267,88 @@ namespace StrmTool
             progress.Report(100);
             _logger.LogInformation("StrmTool - Task complete. Successfully processed {Processed}/{Total} strm files.", 
                 processed, total);
+        }
+
+        /// <summary>
+        /// 直接探测 STRM 文件的媒体流，避免调用元数据提供商
+        /// </summary>
+        private async Task ProbeStrmMediaStreams(BaseItem item, CancellationToken cancellationToken)
+        {
+            try
+            {
+                // 读取 STRM 文件内容（通常是远程媒体的 URL 或路径）
+                string strmContent = File.ReadAllText(item.Path).Trim();
+
+                if (string.IsNullOrWhiteSpace(strmContent))
+                {
+                    _logger.LogWarning("StrmTool - STRM file is empty: {Path}", item.Path);
+                    return;
+                }
+
+                // 确定媒体类型
+                bool isAudio = item.MediaType == MediaType.Audio;
+                
+                // 使用 MediaEncoder 直接探测远程媒体文件
+                // 这会调用 FFprobe 来获取媒体流信息，不涉及任何元数据提供商
+                var mediaInfo = await _mediaEncoder.GetMediaInfo(
+                    new MediaInfoRequest
+                    {
+                        MediaSource = new MediaSourceInfo
+                        {
+                            Path = strmContent,
+                            Protocol = GetProtocolFromPath(strmContent),
+                        },
+                        MediaType = isAudio ? DlnaProfileType.Audio : DlnaProfileType.Video,
+                        ExtractChapters = false,
+                    },
+                    cancellationToken);
+
+                // 将探测到的媒体流保存到数据库
+                if (mediaInfo?.MediaStreams != null && mediaInfo.MediaStreams.Count > 0)
+                {
+                    _mediaStreamRepository.SaveMediaStreams(item.Id, mediaInfo.MediaStreams, cancellationToken);
+                    _logger.LogDebug("StrmTool - Successfully saved {Count} media streams for {Name}", 
+                        mediaInfo.MediaStreams.Count, item.Name);
+                }
+                else
+                {
+                    _logger.LogDebug("StrmTool - No media streams found for {Name}", item.Name);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "StrmTool - Error probing STRM content for {Name}", item.Name);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 根据路径判断协议类型
+        /// </summary>
+        private MediaProtocol GetProtocolFromPath(string path)
+        {
+            if (path.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                path.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                return MediaProtocol.Http;
+            }
+            else if (path.StartsWith("rtmp://", StringComparison.OrdinalIgnoreCase))
+            {
+                return MediaProtocol.Rtmp;
+            }
+            else if (path.StartsWith("rtsp://", StringComparison.OrdinalIgnoreCase))
+            {
+                return MediaProtocol.Rtsp;
+            }
+            else if (path.StartsWith("ftp://", StringComparison.OrdinalIgnoreCase))
+            {
+                return MediaProtocol.Ftp;
+            }
+            else
+            {
+                // 本地路径
+                return MediaProtocol.File;
+            }
         }
 
         /// <summary>
