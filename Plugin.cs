@@ -1,12 +1,14 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
-using System;
 
 namespace StrmTool
 {
-    public class Plugin : BasePlugin<PluginConfiguration>
+    public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
         public static Plugin Instance { get; private set; }
         public static readonly string PluginName = "Strm Tool";
@@ -33,6 +35,18 @@ namespace StrmTool
         public override Guid Id
         {
             get { return _id; }
+        }
+
+        public IEnumerable<PluginPageInfo> GetPages()
+        {
+            return
+            [
+                new PluginPageInfo
+                {
+                    Name = Name,
+                    EmbeddedResourcePath = "StrmTool.Configuration.configPage.html"
+                }
+            ];
         }
     }
 }
