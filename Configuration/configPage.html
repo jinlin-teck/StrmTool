@@ -2,6 +2,16 @@
     <div style="margin-top: 60px; margin-left: 20px;">
         <h3>Strm Tool 设置</h3>
         <div class="verticalSection">
+            <div class="checkboxContainer">
+                <label>
+                    <input type="checkbox" id="chkEnableAutoExtract" />
+                    自动提取新入库 strm 文件的媒体信息
+                </label>
+                <div class="fieldDescription">启用后，新增的 strm 文件会自动在后台执行媒体信息提取，无需手动运行计划任务</div>
+            </div>
+        </div>
+        <br />
+        <div class="verticalSection">
             <div class="inputContainer">
                 <label for="txtRefreshDelay">刷新延迟 (毫秒)</label>
                 <input type="number" id="txtRefreshDelay" min="0" step="100" />
@@ -17,12 +27,14 @@
 
         function loadConfig() {
             ApiClient.getPluginConfiguration('6107fc8c-883a-4171-b70e-7590658706B9').then(function(config) {
+                document.getElementById('chkEnableAutoExtract').checked = config.EnableAutoExtract !== false;
                 document.getElementById('txtRefreshDelay').value = config.RefreshDelayMs || 1000;
             });
         }
 
         function saveConfig() {
             var config = {
+                EnableAutoExtract: document.getElementById('chkEnableAutoExtract').checked,
                 RefreshDelayMs: parseInt(document.getElementById('txtRefreshDelay').value) || 1000
             };
 

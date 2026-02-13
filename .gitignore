@@ -2,8 +2,10 @@
 *.suo
 *.user
 *.sln.docstates
+.gitignore
 
 AGENTS.md
+实现方案.md
 
 [Dd]ebug/
 [Rr]elease/

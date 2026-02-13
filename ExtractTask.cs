@@ -29,6 +29,7 @@ namespace StrmTool
         private readonly IMediaEncoder _mediaEncoder;
         private readonly IMediaStreamRepository _mediaStreamRepository;
         private readonly PluginConfiguration _config;
+        private static LibraryScanListener _scanListener;
 
         public ExtractTask(
             ILibraryManager libraryManager,
@@ -43,6 +44,28 @@ namespace StrmTool
             _mediaEncoder = mediaEncoder;
             _mediaStreamRepository = mediaStreamRepository;
             _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+
+            // 初始化库监听器（仅初始化一次）
+            if (_scanListener == null && _config.EnableAutoExtract)
+            {
+                try
+                {
+                    _scanListener = new LibraryScanListener(_libraryManager, _logger, this, _config);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "StrmTool - Failed to initialize library scan listener");
+                }
+            }
+        }
+
+        /// <summary>
+        /// 清理监听器（在插件卸载时调用）
+        /// </summary>
+        public static void CleanupListener()
+        {
+            _scanListener?.Dispose();
+            _scanListener = null;
         }
 
         public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
@@ -318,6 +341,45 @@ namespace StrmTool
             {
                 _logger.LogError(ex, "StrmTool - Error probing STRM content for {Name}", item.Name);
                 throw;
+            }
+        }
+
+        /// <summary>
+        /// 提取单个 strm 文件的媒体信息（用于自动提取）
+        /// </summary>
+        public async Task ExtractSingleItemAsync(BaseItem item, CancellationToken cancellationToken)
+        {
+            try
+            {
+                _logger.LogInformation("StrmTool - Auto-extracting media info for new strm file: {Name}", item.Name);
+
+                var beforeStreams = GetItemMediaStreams(item);
+                _logger.LogDebug("StrmTool - Before: {Count} streams", beforeStreams.Count);
+
+                // 检查是否已有完整的媒体流
+                bool hasVideo = beforeStreams.Any(s => s.Type == MediaStreamType.Video);
+                bool hasAudio = beforeStreams.Any(s => s.Type == MediaStreamType.Audio);
+
+                if (hasVideo && hasAudio)
+                {
+                    _logger.LogInformation("StrmTool - {Name} already has complete media info, skipping", item.Name);
+                    return;
+                }
+
+                // 执行探测
+                await ProbeStrmMediaStreams(item, cancellationToken);
+
+                var afterStreams = GetItemMediaStreams(item);
+                _logger.LogInformation(
+                    "StrmTool - Auto-extract complete for {Name}. Streams {Before}→{After}",
+                    item.Name,
+                    beforeStreams.Count,
+                    afterStreams.Count
+                );
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "StrmTool - Error in auto-extract for {Name}", item.Name);
             }
         }
 
