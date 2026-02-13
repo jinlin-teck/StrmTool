@@ -21,7 +21,7 @@ using Jellyfin.Data.Enums;
 
 namespace StrmTool
 {
-    public class ExtractTask : IScheduledTask
+    public class ExtractTask : IScheduledTask, IDisposable
     {
         private readonly ILogger<ExtractTask> _logger;
         private readonly ILibraryManager _libraryManager;
@@ -246,16 +246,19 @@ namespace StrmTool
             int processed = 0;
             int total = strmItems.Count;
 
-            foreach (var item in strmItems)
-            {
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    _logger.LogInformation("StrmTool - Task was cancelled");
-                    break;
-                }
+            // 使用并行处理，但限制并发数避免服务器压力
+            var semaphore = new SemaphoreSlim(5); // 限制 5 个并发
 
+            var tasks = strmItems.Select(async item =>
+            {
+                await semaphore.WaitAsync(cancellationToken);
                 try
                 {
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
                     _logger.LogDebug("StrmTool - Processing {Name}", item.Name);
 
                     var beforeStreams = GetItemMediaStreams(item);
@@ -291,22 +294,24 @@ namespace StrmTool
                     {
                         _logger.LogWarning("StrmTool - {Name} may still lack full media info", item.Name);
                     }
+
+                    // 添加延迟，避免对远程服务器造成压力
+                    await Task.Delay(_config.RefreshDelayMs, cancellationToken);
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "StrmTool - Error processing {Name} ({Path})", item.Name, item.Path);
                 }
-
-                processed++;
-                double percent = (double)processed / total * 100;
-                progress.Report(percent);
-
-                // 添加延迟，避免对远程服务器造成压力
-                if (processed < total)
+                finally
                 {
-                    await Task.Delay(_config.RefreshDelayMs, cancellationToken);
+                    semaphore.Release();
+                    processed++;
+                    double percent = (double)processed / total * 100;
+                    progress.Report(percent);
                 }
-            }
+            });
+
+            await Task.WhenAll(tasks);
 
             progress.Report(100);
             _logger.LogInformation("StrmTool - Task complete. Successfully processed {Processed}/{Total} strm files.", 
@@ -516,6 +521,11 @@ namespace StrmTool
         public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
         {
             return Array.Empty<TaskTriggerInfo>();
+        }
+
+        public void Dispose()
+        {
+            CleanupListener();
         }
     }
 }
