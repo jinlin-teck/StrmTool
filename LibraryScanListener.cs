@@ -43,7 +43,9 @@ namespace StrmTool
         // 检查是否是 strm 文件
         if (item.Path?.EndsWith(".strm", StringComparison.OrdinalIgnoreCase) ?? false)
         {
-          _logger.LogInformation("StrmTool - New strm file detected: {Name} ({Path})", item.Name, item.Path);
+          // 使用实际文件名而不是 item.Name，因为 item.Name 可能还没有完全解析
+          var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
+          _logger.LogInformation("StrmTool - New strm file detected: {Name} ({Path})", fileName, item.Path);
 
           // 异步执行媒体信息提取，避免阻塞库扫描流程
           _ = Task.Run(async () =>
@@ -57,11 +59,11 @@ namespace StrmTool
             }
             catch (OperationCanceledException)
             {
-              _logger.LogWarning("StrmTool - Extraction cancelled for {Name}", item.Name);
+              _logger.LogWarning("StrmTool - Extraction cancelled for {Name}", fileName);
             }
             catch (Exception ex)
             {
-              _logger.LogError(ex, "StrmTool - Error extracting single item: {Name}", item.Name);
+              _logger.LogError(ex, "StrmTool - Error extracting single item: {Name}", fileName);
             }
           });
         }

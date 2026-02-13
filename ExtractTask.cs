@@ -55,7 +55,7 @@ namespace StrmTool
                 _config = Plugin.Instance.Configuration;
             }
             
-            _mediaCache = new MediaInfoCache(_logger, _config.CacheExpirationDays);
+            _mediaCache = new MediaInfoCache(_logger);
 
             // 初始化库监听器
             if (_config.EnableAutoExtract)
@@ -320,6 +320,9 @@ namespace StrmTool
         {
             try
             {
+                // 使用实际文件名而不是 item.Name，因为 item.Name 可能还没有完全解析
+                var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
+                
                 // 读取 STRM 文件内容（通常是远程媒体的 URL 或路径）
                 string strmContent = File.ReadAllText(item.Path).Trim();
 
@@ -352,7 +355,7 @@ namespace StrmTool
                 {
                     _mediaStreamRepository.SaveMediaStreams(item.Id, mediaInfo.MediaStreams, cancellationToken);
                     _logger.LogDebug("StrmTool - Successfully saved {Count} media streams for {Name}", 
-                        mediaInfo.MediaStreams.Count, item.Name);
+                        mediaInfo.MediaStreams.Count, fileName);
 
                         // 保存缓存
                         if (_config.EnableMediaInfoCache)
@@ -362,12 +365,13 @@ namespace StrmTool
                 }
                 else
                 {
-                    _logger.LogDebug("StrmTool - No media streams found for {Name}", item.Name);
+                    _logger.LogDebug("StrmTool - No media streams found for {Name}", fileName);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "StrmTool - Error probing STRM content for {Name}", item.Name);
+                var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
+                _logger.LogError(ex, "StrmTool - Error probing STRM content for {Name}", fileName);
                 throw;
             }
         }
@@ -379,7 +383,9 @@ namespace StrmTool
         {
             try
             {
-                _logger.LogInformation("StrmTool - Auto-extracting media info for new strm file: {Name}", item.Name);
+                // 使用实际文件名而不是 item.Name，因为 item.Name 可能还没有完全解析
+                var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
+                _logger.LogInformation("StrmTool - Auto-extracting media info for new strm file: {Name}", fileName);
 
                 var beforeStreams = GetItemMediaStreams(item);
                 _logger.LogDebug("StrmTool - Before: {Count} streams", beforeStreams.Count);
@@ -390,7 +396,7 @@ namespace StrmTool
 
                 if (hasVideo && hasAudio)
                 {
-                    _logger.LogInformation("StrmTool - {Name} already has complete media info, skipping", item.Name);
+                    _logger.LogInformation("StrmTool - {Name} already has complete media info, skipping", fileName);
                     return;
                 }
 
@@ -398,7 +404,7 @@ namespace StrmTool
                 if (_config.EnableMediaInfoCache && _mediaCache.TryGetCachedMediaStreams(item.Path, out var cachedStreams))
                 {
                     _mediaStreamRepository.SaveMediaStreams(item.Id, cachedStreams, cancellationToken);
-                    _logger.LogInformation("StrmTool - Auto-extract: {Name} using cached media info", item.Name);
+                    _logger.LogInformation("StrmTool - Auto-extract: {Name} using cached media info", fileName);
                 }
                 else
                 {
@@ -409,7 +415,7 @@ namespace StrmTool
                 var afterStreams = GetItemMediaStreams(item);
                 _logger.LogInformation(
                     "StrmTool - Auto-extract complete for {Name}. Streams {Before}→{After}",
-                    item.Name,
+                    fileName,
                     beforeStreams.Count,
                     afterStreams.Count
                 );
@@ -502,10 +508,10 @@ namespace StrmTool
             }
         }
 
-        public string Category => "Strm Tool";
+        public string Category => Plugin.Instance?.GetLocalizedString("StrmTool.TaskCategory") ?? "Strm Tool";
         public string Key => "StrmToolTask";
-        public string Description => "Extract media technical information (codec, resolution, subtitles) from strm files";
-        public string Name => "Extract Strm Media Info";
+        public string Description => Plugin.Instance?.GetLocalizedString("StrmTool.TaskDescription") ?? "Extract media technical information (codec, resolution, subtitles) from strm files";
+        public string Name => Plugin.Instance?.GetLocalizedString("StrmTool.TaskName") ?? "Extract Strm Media Info";
 
         public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
         {

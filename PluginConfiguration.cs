@@ -15,10 +15,5 @@ namespace StrmTool
         /// 是否启用媒体信息缓存
         /// </summary>
         public bool EnableMediaInfoCache { get; set; } = true;
-
-        /// <summary>
-        /// 缓存过期时间（天数）
-        /// </summary>
-        public int CacheExpirationDays { get; set; } = 7;
     }
 }

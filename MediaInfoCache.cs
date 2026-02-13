@@ -14,7 +14,6 @@ namespace StrmTool
   public class MediaInfoCache
   {
     private readonly ILogger<ExtractTask> _logger;
-    private int _cacheExpirationDays;
     
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -23,10 +22,9 @@ namespace StrmTool
       DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
-    public MediaInfoCache(ILogger<ExtractTask> logger, int cacheExpirationDays = 7)
+    public MediaInfoCache(ILogger<ExtractTask> logger)
     {
       _logger = logger;
-      _cacheExpirationDays = cacheExpirationDays;
     }
 
     /// <summary>
@@ -58,14 +56,6 @@ namespace StrmTool
 
         if (!File.Exists(cachePath))
         {
-          return false;
-        }
-
-        var fileInfo = new FileInfo(cachePath);
-        // 检查缓存是否过期
-        if (DateTime.UtcNow - fileInfo.LastWriteTimeUtc > TimeSpan.FromDays(_cacheExpirationDays))
-        {
-          _logger.LogDebug("StrmTool - Cache file expired: {Path}", cachePath);
           return false;
         }
 

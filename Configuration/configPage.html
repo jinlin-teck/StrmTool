@@ -21,14 +21,7 @@
             </div>
         </div>
         <br />
-        <div class="verticalSection">
-            <div class="inputContainer">
-                <label for="txtCacheExpirationDays" id="lblCacheExpirationDays">Cache expiration days</label>
-                <input type="number" id="txtCacheExpirationDays" min="1" step="1" />
-                <div class="fieldDescription" id="descCacheExpirationDays">Cached files will be re-probed after this number of days</div>
-            </div>
-        </div>
-        <br />
+
         <div class="verticalSection">
             <div class="inputContainer">
                 <label for="txtRefreshDelay" id="lblRefreshDelay">Refresh delay (ms)</label>
@@ -49,8 +42,6 @@
                 'descEnableAutoExtract': 'When enabled, new strm files will automatically extract media info in the background without manual task execution',
                 'lblEnableMediaInfoCache': 'Enable media info caching',
                 'descEnableMediaInfoCache': 'When enabled, extracted media info will be saved to xxx.json files to avoid repeated probing',
-                'lblCacheExpirationDays': 'Cache expiration days',
-                'descCacheExpirationDays': 'Cached files will be re-probed after this number of days',
                 'lblRefreshDelay': 'Refresh delay (ms)',
                 'descRefreshDelay': 'Milliseconds to wait after each media info refresh to avoid overwhelming remote servers',
                 'btnSave': 'Save',
@@ -62,8 +53,6 @@
                 'descEnableAutoExtract': '启用后，新增的 strm 文件会自动在后台执行媒体信息提取，无需手动运行计划任务',
                 'lblEnableMediaInfoCache': '启用媒体信息缓存',
                 'descEnableMediaInfoCache': '启用后，提取的媒体信息会保存到 xxx.json 文件中，避免重复探测',
-                'lblCacheExpirationDays': '缓存过期天数',
-                'descCacheExpirationDays': '缓存文件超过此天数后会被重新探测',
                 'lblRefreshDelay': '刷新延迟 (毫秒)',
                 'descRefreshDelay': '每次刷新媒体信息后等待的毫秒数，用于避免对远程服务器造成压力',
                 'btnSave': '保存',
@@ -141,8 +130,6 @@
             document.getElementById('descEnableAutoExtract').textContent = t('descEnableAutoExtract');
             document.getElementById('lblEnableMediaInfoCache').textContent = t('lblEnableMediaInfoCache');
             document.getElementById('descEnableMediaInfoCache').textContent = t('descEnableMediaInfoCache');
-            document.getElementById('lblCacheExpirationDays').textContent = t('lblCacheExpirationDays');
-            document.getElementById('descCacheExpirationDays').textContent = t('descCacheExpirationDays');
             document.getElementById('lblRefreshDelay').textContent = t('lblRefreshDelay');
             document.getElementById('descRefreshDelay').textContent = t('descRefreshDelay');
             document.getElementById('btnSave').textContent = t('btnSave');
@@ -154,7 +141,6 @@
             ApiClient.getPluginConfiguration('6107fc8c-883a-4171-b70e-7590658706B9').then(function(config) {
                 document.getElementById('chkEnableAutoExtract').checked = config.EnableAutoExtract !== false;
                 document.getElementById('chkEnableMediaInfoCache').checked = config.EnableMediaInfoCache !== false;
-                document.getElementById('txtCacheExpirationDays').value = config.CacheExpirationDays || 7;
                 document.getElementById('txtRefreshDelay').value = config.RefreshDelayMs || 1000;
             });
         }
@@ -163,7 +149,6 @@
             var config = {
                 EnableAutoExtract: document.getElementById('chkEnableAutoExtract').checked,
                 EnableMediaInfoCache: document.getElementById('chkEnableMediaInfoCache').checked,
-                CacheExpirationDays: parseInt(document.getElementById('txtCacheExpirationDays').value) || 7,
                 RefreshDelayMs: parseInt(document.getElementById('txtRefreshDelay').value) || 1000
             };
 
