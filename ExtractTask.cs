@@ -372,7 +372,7 @@ namespace StrmTool
             {
                 var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
                 _logger.LogError(ex, "StrmTool - Error probing STRM content for {Name}", fileName);
-                throw;
+                // 不抛出异常，继续处理下一个文件
             }
         }
 
