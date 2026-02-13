@@ -30,7 +30,7 @@ namespace StrmTool
         private readonly IMediaStreamRepository _mediaStreamRepository;
         private readonly PluginConfiguration _config;
         private readonly MediaInfoCache _mediaCache;
-        private static LibraryScanListener _scanListener;
+        private LibraryScanListener _scanListener;
 
         public ExtractTask(
             ILibraryManager libraryManager,
@@ -57,8 +57,8 @@ namespace StrmTool
             
             _mediaCache = new MediaInfoCache(_logger, _config.CacheExpirationDays);
 
-            // 初始化库监听器（仅初始化一次）
-            if (_scanListener == null && _config.EnableAutoExtract)
+            // 初始化库监听器
+            if (_config.EnableAutoExtract)
             {
                 try
                 {
@@ -74,7 +74,7 @@ namespace StrmTool
         /// <summary>
         /// 清理监听器（在插件卸载时调用）
         /// </summary>
-        public static void CleanupListener()
+        public void CleanupListener()
         {
             _scanListener?.Dispose();
             _scanListener = null;
@@ -354,11 +354,11 @@ namespace StrmTool
                     _logger.LogDebug("StrmTool - Successfully saved {Count} media streams for {Name}", 
                         mediaInfo.MediaStreams.Count, item.Name);
 
-                    // 保存缓存
-                    if (_config.EnableMediaInfoCache)
-                    {
-                        await _mediaCache.SaveCacheAsync(item.Path, mediaInfo.MediaStreams, strmContent);
-                    }
+                        // 保存缓存
+                        if (_config.EnableMediaInfoCache)
+                        {
+                            await _mediaCache.SaveCacheAsync(item.Path, mediaInfo.MediaStreams, strmContent, cancellationToken);
+                        }
                 }
                 else
                 {

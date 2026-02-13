@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using MediaBrowser.Model.Entities;
@@ -33,7 +34,13 @@ namespace StrmTool
     /// </summary>
     private static string GetCachePath(string strmPath)
     {
+      if (string.IsNullOrWhiteSpace(strmPath))
+        throw new ArgumentException("Invalid strm path", nameof(strmPath));
+      
       var directory = Path.GetDirectoryName(strmPath);
+      if (string.IsNullOrWhiteSpace(directory))
+        directory = Directory.GetCurrentDirectory();
+        
       var fileName = Path.GetFileNameWithoutExtension(strmPath) + ".json";
       return Path.Combine(directory, fileName);
     }
@@ -84,7 +91,7 @@ namespace StrmTool
     /// <summary>
     /// 保存缓存
     /// </summary>
-    public async Task SaveCacheAsync(string strmPath, IEnumerable<MediaStream> mediaStreams, string sourceUrl)
+    public async Task SaveCacheAsync(string strmPath, IEnumerable<MediaStream> mediaStreams, string sourceUrl, CancellationToken cancellationToken = default)
     {
       try
       {
@@ -102,7 +109,7 @@ namespace StrmTool
         var json = JsonSerializer.Serialize(cache, JsonOptions);
 
         // 使用异步写入避免阻塞
-        await File.WriteAllTextAsync(cachePath, json);
+        await File.WriteAllTextAsync(cachePath, json, cancellationToken);
 
         _logger.LogDebug("StrmTool - Saved cache to {Path}", cachePath);
       }
