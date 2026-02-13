@@ -1,0 +1,18 @@
+{
+  "StrmTool.PluginName": "Strm Tool",
+  "StrmTool.PluginDescription": "Extracts technical media information (codec, resolution, subtitles) from strm files to enhance library display and playback performance.",
+  "StrmTool.TaskName": "Extract Strm Media Info",
+  "StrmTool.TaskDescription": "Extracts technical media information (codec, resolution, subtitles) from strm files.",
+  "StrmTool.TaskCategory": "Strm Tool",
+  "StrmTool.TaskStarted": "Starting strm file scan...",
+  "StrmTool.FoundRootFolders": "Found {0} library root folders",
+  "StrmTool.FoundStrmFiles": "Found {0} strm files in library",
+  "StrmTool.FilesNeedRefresh": "{0} strm files need metadata refresh",
+  "StrmTool.TaskComplete": "Task complete. Successfully processed {0}/{1} strm files.",
+  "StrmTool.CachedMediaInfo": "{0}: Used cached media info ({1} streams)",
+  "StrmTool.AutoExtractStarted": "Auto-extracting media info for new strm file: {0}",
+  "StrmTool.AlreadyHasCompleteInfo": "{0} already has complete media info, skipping",
+  "StrmTool.AutoExtractComplete": "Auto-extract complete for {0}. Streams {1}→{2}",
+  "StrmTool.StrmFileEmpty": "STRM file is empty: {0}",
+  "StrmTool.CouldNotFindLibraryItem": "Could not find library item for path: {0}"
+}

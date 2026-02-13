@@ -18,6 +18,8 @@ using MediaBrowser.Model.MediaInfo;
 using MediaBrowser.Model.Tasks;
 using MediaBrowser.Model.Entities;
 using Jellyfin.Data.Enums;
+using MediaBrowser.Common.Configuration;
+using MediaBrowser.Model.Globalization;
 
 namespace StrmTool
 {
@@ -31,13 +33,15 @@ namespace StrmTool
         private readonly PluginConfiguration _config;
         private readonly MediaInfoCache _mediaCache;
         private static LibraryScanListener _scanListener;
+        private readonly LocalizationManager _localization;
 
         public ExtractTask(
             ILibraryManager libraryManager,
             ILogger<ExtractTask> logger,
             IFileSystem fileSystem,
             IMediaEncoder mediaEncoder,
-            IMediaStreamRepository mediaStreamRepository)
+            IMediaStreamRepository mediaStreamRepository,
+            ILocalizationManager localizationManager)
         {
             _libraryManager = libraryManager;
             _logger = logger;
@@ -46,6 +50,7 @@ namespace StrmTool
             _mediaStreamRepository = mediaStreamRepository;
             _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
             _mediaCache = new MediaInfoCache(_logger, _config.CacheExpirationDays);
+            _localization = new LocalizationManager(logger, localizationManager);
 
             // 初始化库监听器（仅初始化一次）
             if (_scanListener == null && _config.EnableAutoExtract)
@@ -72,7 +77,7 @@ namespace StrmTool
 
         public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
         {
-            _logger.LogInformation("StrmTool - Starting strm file scan...");
+            _logger.LogInformation("StrmTool - {0}", _localization.GetLocalizedString("StrmTool.TaskStarted"));
 
             try
             {
@@ -82,7 +87,7 @@ namespace StrmTool
                     .Distinct()
                     .ToList();
 
-                _logger.LogInformation("StrmTool - Found {Count} library root folders", rootFolders.Count);
+                _logger.LogInformation("StrmTool - {0}", _localization.GetLocalizedString("StrmTool.FoundRootFolders", rootFolders.Count));
 
                 var allStrmFiles = new List<BaseItem>();
 
@@ -104,7 +109,7 @@ namespace StrmTool
                     }
                 }
 
-                _logger.LogInformation("StrmTool - Found {Count} strm files in library", allStrmFiles.Count);
+                _logger.LogInformation("StrmTool - {0}", _localization.GetLocalizedString("StrmTool.FoundStrmFiles", allStrmFiles.Count));
 
                 // 过滤需要刷新的文件
                 var strmItems = new List<BaseItem>();
@@ -132,7 +137,7 @@ namespace StrmTool
                     }
                 }
 
-                _logger.LogInformation("StrmTool - {Count} strm files need metadata refresh", strmItems.Count);
+                _logger.LogInformation("StrmTool - {0}", _localization.GetLocalizedString("StrmTool.FilesNeedRefresh", strmItems.Count));
 
                 if (strmItems.Count == 0)
                 {
@@ -193,7 +198,7 @@ namespace StrmTool
                             }
                             else
                             {
-                                _logger.LogWarning("StrmTool - Could not find library item for path: {Path}", strmPath);
+                                _logger.LogWarning("StrmTool - {0}", _localization.GetLocalizedString("StrmTool.CouldNotFindLibraryItem", strmPath));
                             }
                         }
                         catch (Exception ex)
@@ -255,8 +260,8 @@ namespace StrmTool
                     if (_config.EnableMediaInfoCache && _mediaCache.TryGetCachedMediaStreams(item.Path, out var cachedStreams))
                     {
                         _mediaStreamRepository.SaveMediaStreams(item.Id, cachedStreams, cancellationToken);
-                        _logger.LogInformation("StrmTool - {Name}: Used cached media info ({Count} streams)", 
-                            item.Name, cachedStreams.Count);
+                        _logger.LogInformation("StrmTool - {0}", _localization.GetLocalizedString("StrmTool.CachedMediaInfo", 
+                            item.Name, cachedStreams.Count));
                     }
                     else
                     {
@@ -299,8 +304,7 @@ namespace StrmTool
             }
 
             progress.Report(100);
-            _logger.LogInformation("StrmTool - Task complete. Successfully processed {Processed}/{Total} strm files.", 
-                processed, total);
+            _logger.LogInformation("StrmTool - {0}", _localization.GetLocalizedString("StrmTool.TaskComplete", processed, total));
         }
 
         /// <summary>
@@ -315,7 +319,7 @@ namespace StrmTool
 
                 if (string.IsNullOrWhiteSpace(strmContent))
                 {
-                    _logger.LogWarning("StrmTool - STRM file is empty: {Path}", item.Path);
+                    _logger.LogWarning("StrmTool - {0}", _localization.GetLocalizedString("StrmTool.StrmFileEmpty", item.Path));
                     return;
                 }
 
@@ -369,7 +373,7 @@ namespace StrmTool
         {
             try
             {
-                _logger.LogInformation("StrmTool - Auto-extracting media info for new strm file: {Name}", item.Name);
+                _logger.LogInformation("StrmTool - {0}", _localization.GetLocalizedString("StrmTool.AutoExtractStarted", item.Name));
 
                 var beforeStreams = GetItemMediaStreams(item);
                 _logger.LogDebug("StrmTool - Before: {Count} streams", beforeStreams.Count);
@@ -380,7 +384,7 @@ namespace StrmTool
 
                 if (hasVideo && hasAudio)
                 {
-                    _logger.LogInformation("StrmTool - {Name} already has complete media info, skipping", item.Name);
+                    _logger.LogInformation("StrmTool - {0}", _localization.GetLocalizedString("StrmTool.AlreadyHasCompleteInfo", item.Name));
                     return;
                 }
 
@@ -388,7 +392,7 @@ namespace StrmTool
                 if (_config.EnableMediaInfoCache && _mediaCache.TryGetCachedMediaStreams(item.Path, out var cachedStreams))
                 {
                     _mediaStreamRepository.SaveMediaStreams(item.Id, cachedStreams, cancellationToken);
-                    _logger.LogInformation("StrmTool - Auto-extract: {Name} using cached media info", item.Name);
+                        _logger.LogInformation("StrmTool - {0}", _localization.GetLocalizedString("StrmTool.CachedMediaInfo", item.Name, cachedStreams.Count));
                 }
                 else
                 {
@@ -398,11 +402,9 @@ namespace StrmTool
 
                 var afterStreams = GetItemMediaStreams(item);
                 _logger.LogInformation(
-                    "StrmTool - Auto-extract complete for {Name}. Streams {Before}→{After}",
-                    item.Name,
-                    beforeStreams.Count,
-                    afterStreams.Count
-                );
+                        "StrmTool - {0}", _localization.GetLocalizedString("StrmTool.AutoExtractComplete",
+                        item.Name, beforeStreams.Count, afterStreams.Count)
+                    );
             }
             catch (Exception ex)
             {
@@ -492,10 +494,10 @@ namespace StrmTool
             }
         }
 
-        public string Category => "Strm Tool";
+        public string Category => _localization.GetLocalizedString("StrmTool.TaskCategory");
         public string Key => "StrmToolTask";
-        public string Description => "Extract media technical information (codec, resolution, subtitles) from strm files";
-        public string Name => "Extract Strm Media Info";
+        public string Description => _localization.GetLocalizedString("StrmTool.TaskDescription");
+        public string Name => _localization.GetLocalizedString("StrmTool.TaskName");
 
         public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
         {

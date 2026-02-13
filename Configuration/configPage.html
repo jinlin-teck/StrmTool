@@ -1,13 +1,13 @@
 <div id="configPage" data-role="page" class="page pattern">
     <div style="margin-top: 60px; margin-left: 20px;">
-        <h3>Strm Tool 设置</h3>
+        <h3 id="pageTitle">Strm Tool Settings</h3>
         <div class="verticalSection">
             <div class="checkboxContainer">
                 <label>
                     <input type="checkbox" id="chkEnableAutoExtract" />
-                    自动提取新入库 strm 文件的媒体信息
+                    <span id="lblEnableAutoExtract">Automatically extract media info for new strm files</span>
                 </label>
-                <div class="fieldDescription">启用后，新增的 strm 文件会自动在后台执行媒体信息提取，无需手动运行计划任务</div>
+                <div class="fieldDescription" id="descEnableAutoExtract">When enabled, new strm files will automatically extract media info in the background without manual task execution</div>
             </div>
         </div>
         <br />
@@ -15,32 +15,139 @@
             <div class="checkboxContainer">
                 <label>
                     <input type="checkbox" id="chkEnableMediaInfoCache" />
-                    启用媒体信息缓存
+                    <span id="lblEnableMediaInfoCache">Enable media info caching</span>
                 </label>
-                <div class="fieldDescription">启用后，提取的媒体信息会保存到 xxx.json 文件中，避免重复探测</div>
+                <div class="fieldDescription" id="descEnableMediaInfoCache">When enabled, extracted media info will be saved to xxx.json files to avoid repeated probing</div>
             </div>
         </div>
         <br />
         <div class="verticalSection">
             <div class="inputContainer">
-                <label for="txtCacheExpirationDays">缓存过期天数</label>
+                <label for="txtCacheExpirationDays" id="lblCacheExpirationDays">Cache expiration days</label>
                 <input type="number" id="txtCacheExpirationDays" min="1" step="1" />
-                <div class="fieldDescription">缓存文件超过此天数后会被重新探测</div>
+                <div class="fieldDescription" id="descCacheExpirationDays">Cached files will be re-probed after this number of days</div>
             </div>
         </div>
         <br />
         <div class="verticalSection">
             <div class="inputContainer">
-                <label for="txtRefreshDelay">刷新延迟 (毫秒)</label>
+                <label for="txtRefreshDelay" id="lblRefreshDelay">Refresh delay (ms)</label>
                 <input type="number" id="txtRefreshDelay" min="0" step="100" />
-                <div class="fieldDescription">每次刷新媒体信息后等待的毫秒数，用于避免对远程服务器造成压力</div>
+                <div class="fieldDescription" id="descRefreshDelay">Milliseconds to wait after each media info refresh to avoid overwhelming remote servers</div>
             </div>
         </div>
         <br />
-        <button id="btnSave" data-role="button">保存</button>
+        <button id="btnSave" data-role="button">Save</button>
     </div>
 
     <script>
+        // 翻译资源
+        const translations = {
+            'en': {
+                'pageTitle': 'Strm Tool Settings',
+                'lblEnableAutoExtract': 'Automatically extract media info for new strm files',
+                'descEnableAutoExtract': 'When enabled, new strm files will automatically extract media info in the background without manual task execution',
+                'lblEnableMediaInfoCache': 'Enable media info caching',
+                'descEnableMediaInfoCache': 'When enabled, extracted media info will be saved to xxx.json files to avoid repeated probing',
+                'lblCacheExpirationDays': 'Cache expiration days',
+                'descCacheExpirationDays': 'Cached files will be re-probed after this number of days',
+                'lblRefreshDelay': 'Refresh delay (ms)',
+                'descRefreshDelay': 'Milliseconds to wait after each media info refresh to avoid overwhelming remote servers',
+                'btnSave': 'Save',
+                'settingsSaved': 'Settings saved successfully'
+            },
+            'zh': {
+                'pageTitle': 'Strm工具设置',
+                'lblEnableAutoExtract': '自动提取新入库 strm 文件的媒体信息',
+                'descEnableAutoExtract': '启用后，新增的 strm 文件会自动在后台执行媒体信息提取，无需手动运行计划任务',
+                'lblEnableMediaInfoCache': '启用媒体信息缓存',
+                'descEnableMediaInfoCache': '启用后，提取的媒体信息会保存到 xxx.json 文件中，避免重复探测',
+                'lblCacheExpirationDays': '缓存过期天数',
+                'descCacheExpirationDays': '缓存文件超过此天数后会被重新探测',
+                'lblRefreshDelay': '刷新延迟 (毫秒)',
+                'descRefreshDelay': '每次刷新媒体信息后等待的毫秒数，用于避免对远程服务器造成压力',
+                'btnSave': '保存',
+                'settingsSaved': '设置已保存'
+            }
+        };
+
+        // 获取当前语言
+        function getCurrentCulture() {
+            try {
+                // 尝试从多个可能的位置获取语言设置
+                // 1. 从 Jellyfin 配置获取
+                // 2. 从页面元素或属性获取
+                // 3. 从系统语言设置获取
+                
+                // 尝试获取 dashboardCulture（Jellyfin 可能使用的变量）
+                if (typeof window.dashboardCulture !== 'undefined' && window.dashboardCulture) {
+                    return window.dashboardCulture;
+                }
+                
+                // 尝试获取 Culture（Jellyfin 可能使用的变量）
+                if (typeof window.Culture !== 'undefined' && window.Culture) {
+                    return window.Culture;
+                }
+                
+                // 尝试从 localStorage 或其他存储获取
+                if (typeof localStorage !== 'undefined') {
+                    const storedCulture = localStorage.getItem('jellyfin-culture') || 
+                                           localStorage.getItem('culture') || 
+                                           localStorage.getItem('ui-culture');
+                    if (storedCulture) {
+                        return storedCulture;
+                    }
+                }
+                
+                // 尝试从 HTML 标签获取语言设置
+                const htmlLang = document.documentElement.getAttribute('lang');
+                if (htmlLang) {
+                    return htmlLang;
+                }
+                
+                // 最后使用浏览器语言设置
+                const browserLang = navigator.language || navigator.userLanguage || 'en';
+                return browserLang;
+                
+            } catch (e) {
+                console.error('StrmTool - 无法获取语言设置:', e);
+                return 'zh-CN'; // 强制使用中文作为默认值
+            }
+        }
+
+        // 翻译函数
+        function t(key) {
+            const culture = getCurrentCulture();
+            const langCode = culture.split('-')[0];
+            
+            // 尝试使用完整文化代码
+            if (translations[culture] && translations[culture][key]) {
+                return translations[culture][key];
+            }
+            
+            // 尝试使用语言前缀
+            if (translations[langCode] && translations[langCode][key]) {
+                return translations[langCode][key];
+            }
+            
+            // 回退到英文
+            return translations['en'][key] || key;
+        }
+
+        // 应用翻译
+        function applyTranslations() {
+            document.getElementById('pageTitle').textContent = t('pageTitle');
+            document.getElementById('lblEnableAutoExtract').textContent = t('lblEnableAutoExtract');
+            document.getElementById('descEnableAutoExtract').textContent = t('descEnableAutoExtract');
+            document.getElementById('lblEnableMediaInfoCache').textContent = t('lblEnableMediaInfoCache');
+            document.getElementById('descEnableMediaInfoCache').textContent = t('descEnableMediaInfoCache');
+            document.getElementById('lblCacheExpirationDays').textContent = t('lblCacheExpirationDays');
+            document.getElementById('descCacheExpirationDays').textContent = t('descCacheExpirationDays');
+            document.getElementById('lblRefreshDelay').textContent = t('lblRefreshDelay');
+            document.getElementById('descRefreshDelay').textContent = t('descRefreshDelay');
+            document.getElementById('btnSave').textContent = t('btnSave');
+        }
+
         var form = this;
 
         function loadConfig() {
@@ -61,12 +168,32 @@
             };
 
             ApiClient.updatePluginConfiguration('6107fc8c-883a-4171-b70e-7590658706B9', config).then(function() {
-                Dashboard.alert('设置已保存');
+                Dashboard.alert(t('settingsSaved'));
             });
         }
 
         document.getElementById('btnSave').addEventListener('click', saveConfig);
 
-        loadConfig();
+        // 页面加载时应用翻译和加载配置
+        function initializePage() {
+            console.log('StrmTool - 初始化设置页面');
+            applyTranslations();
+            loadConfig();
+        }
+
+        // 监听页面加载
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializePage);
+        } else {
+            // 页面已经加载完成
+            initializePage();
+        }
+
+        // 打印调试信息
+        console.log('StrmTool - 设置页面加载完成');
+        console.log('StrmTool - getCurrentCulture():', getCurrentCulture());
+        console.log('StrmTool - window.dashboardCulture:', typeof window.dashboardCulture !== 'undefined' ? window.dashboardCulture : 'undefined');
+        console.log('StrmTool - window.Culture:', typeof window.Culture !== 'undefined' ? window.Culture : 'undefined');
+        console.log('StrmTool - html.lang:', document.documentElement.getAttribute('lang') || 'undefined');
     </script>
 </div>
