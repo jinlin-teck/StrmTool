@@ -1,18 +1,18 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Model.IO;
-using MediaBrowser.Model.Tasks;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Providers;
+using MediaBrowser.Model.IO;
+using MediaBrowser.Model.Tasks;
 using MediaBrowser.Model.Entities;
-using MediaBrowser.Controller.Entities.Movies;
-using MediaBrowser.Controller.Entities.TV;
 using Jellyfin.Data.Enums;
 
 namespace StrmTool
@@ -122,56 +122,72 @@ namespace StrmTool
         {
             var strmFiles = new List<BaseItem>();
 
-            try
-            {
-                // 查找当前目录中的 strm 文件
-                var strmPaths = Directory.GetFiles(directoryPath, "*.strm", SearchOption.TopDirectoryOnly);
-                
-                foreach (var strmPath in strmPaths)
-                {
-                    if (cancellationToken.IsCancellationRequested)
-                        break;
+            var dirs = new Stack<string>();
+            dirs.Push(directoryPath);
 
+            while (dirs.Count > 0)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                    break;
+
+                var current = dirs.Pop();
+                try
+                {
+                    // 使用 EnumerateFiles/EnumerateDirectories 以减少一次性内存占用
+                    IEnumerable<string> files = Enumerable.Empty<string>();
                     try
                     {
-                        // 使用更安全的方式获取 BaseItem
-                        var item = _libraryManager.FindByPath(strmPath, false);
-                        if (item != null)
-                        {
-                            strmFiles.Add(item);
-                        }
-                        else
-                        {
-                            _logger.LogWarning("StrmTool - Could not find library item for path: {Path}", strmPath);
-                        }
+                        files = Directory.EnumerateFiles(current, "*.strm");
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "StrmTool - Error processing file {Path}", strmPath);
+                        _logger.LogError(ex, "StrmTool - Error enumerating files in {Directory}", current);
                     }
-                }
 
-                // 递归查找子目录
-                var subDirectories = Directory.GetDirectories(directoryPath);
-                foreach (var subDir in subDirectories)
-                {
-                    if (cancellationToken.IsCancellationRequested)
-                        break;
+                    foreach (var strmPath in files)
+                    {
+                        if (cancellationToken.IsCancellationRequested)
+                            break;
 
+                        try
+                        {
+                            var item = _libraryManager.FindByPath(strmPath, false);
+                            if (item != null)
+                            {
+                                strmFiles.Add(item);
+                            }
+                            else
+                            {
+                                _logger.LogWarning("StrmTool - Could not find library item for path: {Path}", strmPath);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "StrmTool - Error processing file {Path}", strmPath);
+                        }
+                    }
+
+                    IEnumerable<string> subDirs = Enumerable.Empty<string>();
                     try
                     {
-                        var subDirFiles = FindStrmFilesInDirectory(subDir, cancellationToken);
-                        strmFiles.AddRange(subDirFiles);
+                        subDirs = Directory.EnumerateDirectories(current);
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "StrmTool - Error scanning subdirectory {Directory}", subDir);
+                        _logger.LogError(ex, "StrmTool - Error enumerating directories in {Directory}", current);
+                    }
+
+                    foreach (var sub in subDirs)
+                    {
+                        if (cancellationToken.IsCancellationRequested)
+                            break;
+                        dirs.Push(sub);
                     }
                 }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "StrmTool - Error scanning directory {Directory}", directoryPath);
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "StrmTool - Error scanning directory {Directory}", current);
+                }
             }
 
             return strmFiles;
@@ -253,44 +269,50 @@ namespace StrmTool
         }
 
         /// <summary>
-        /// 兼容的方法来获取媒体流
+        /// 兼容的方法来获取媒体流，带反射结果缓存以减少每次调用的开销
         /// </summary>
+        private static readonly ConcurrentDictionary<Type, Func<BaseItem, List<MediaStream>>> _mediaStreamResolvers
+            = new ConcurrentDictionary<Type, Func<BaseItem, List<MediaStream>>>();
+
         private List<MediaStream> GetItemMediaStreams(BaseItem item)
         {
             try
             {
-                // 尝试直接访问 MediaStreams 属性
-                var mediaStreamsProperty = item.GetType().GetProperty("MediaStreams");
-                if (mediaStreamsProperty != null)
-                {
-                    var value = mediaStreamsProperty.GetValue(item);
-                    if (value is List<MediaStream> streams)
-                    {
-                        return streams;
-                    }
-                    if (value is IEnumerable<MediaStream> enumerable)
-                    {
-                        return enumerable.ToList();
-                    }
-                }
+                var type = item.GetType();
 
-                // 尝试使用 GetMediaStreams 方法
-                var getMediaStreamsMethod = item.GetType().GetMethod("GetMediaStreams");
-                if (getMediaStreamsMethod != null)
+                var resolver = _mediaStreamResolvers.GetOrAdd(type, t =>
                 {
-                    var result = getMediaStreamsMethod.Invoke(item, null);
-                    if (result is List<MediaStream> streams)
+                    // 尝试属性优先
+                    var prop = t.GetProperty("MediaStreams", BindingFlags.Public | BindingFlags.Instance);
+                    if (prop != null && typeof(IEnumerable<MediaStream>).IsAssignableFrom(prop.PropertyType))
                     {
-                        return streams;
+                        return new Func<BaseItem, List<MediaStream>>(bi =>
+                        {
+                            var val = prop.GetValue(bi);
+                            if (val is List<MediaStream> list) return list;
+                            if (val is IEnumerable<MediaStream> enumv) return enumv.ToList();
+                            return new List<MediaStream>();
+                        });
                     }
-                    if (result is IEnumerable<MediaStream> enumerable)
-                    {
-                        return enumerable.ToList();
-                    }
-                }
 
-                _logger.LogWarning("StrmTool - Could not get media streams for {ItemType}", item.GetType().Name);
-                return new List<MediaStream>();
+                    // 尝试方法
+                    var method = t.GetMethod("GetMediaStreams", BindingFlags.Public | BindingFlags.Instance);
+                    if (method != null && typeof(IEnumerable<MediaStream>).IsAssignableFrom(method.ReturnType))
+                    {
+                        return new Func<BaseItem, List<MediaStream>>(bi =>
+                        {
+                            var res = method.Invoke(bi, null);
+                            if (res is List<MediaStream> list) return list;
+                            if (res is IEnumerable<MediaStream> enumv) return enumv.ToList();
+                            return new List<MediaStream>();
+                        });
+                    }
+
+                    // Fallback: empty
+                    return new Func<BaseItem, List<MediaStream>>(bi => new List<MediaStream>());
+                });
+
+                return resolver(item);
             }
             catch (Exception ex)
             {

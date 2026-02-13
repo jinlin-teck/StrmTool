@@ -1,4 +1,3 @@
-using System;
 using MediaBrowser.Model.Plugins;
 
 namespace StrmTool
