@@ -22,6 +22,7 @@ namespace StrmTool
         private readonly ILogger<ExtractTask> _logger;
         private readonly ILibraryManager _libraryManager;
         private readonly IFileSystem _fileSystem;
+        private readonly PluginConfiguration _config;
 
         public ExtractTask(
             ILibraryManager libraryManager,
@@ -31,6 +32,7 @@ namespace StrmTool
             _libraryManager = libraryManager;
             _logger = logger;
             _fileSystem = fileSystem;
+            _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
         }
 
         public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
@@ -241,7 +243,7 @@ namespace StrmTool
                 // 添加延迟，避免对远程服务器造成压力
                 if (processed < total)
                 {
-                    await Task.Delay(1000, cancellationToken);
+                    await Task.Delay(_config.RefreshDelayMs, cancellationToken);
                 }
             }
 

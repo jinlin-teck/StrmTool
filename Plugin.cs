@@ -9,8 +9,8 @@ namespace StrmTool
     public class Plugin : BasePlugin<PluginConfiguration>
     {
         public static Plugin Instance { get; private set; }
-        public static string PluginName = "Strm Tool";
-        private Guid _id = new Guid("6107fc8c-883a-4171-b70e-7590658706B9");
+        public static readonly string PluginName = "Strm Tool";
+        private static readonly Guid _id = new Guid("6107fc8c-883a-4171-b70e-7590658706B9");
 
         public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer) : base(applicationPaths, xmlSerializer)
         {
