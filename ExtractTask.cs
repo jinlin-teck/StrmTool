@@ -44,7 +44,17 @@ namespace StrmTool
             _fileSystem = fileSystem;
             _mediaEncoder = mediaEncoder;
             _mediaStreamRepository = mediaStreamRepository;
-            _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+            
+            if (Plugin.Instance == null)
+            {
+                _logger.LogWarning("StrmTool - Plugin instance not found, using default configuration");
+                _config = new PluginConfiguration();
+            }
+            else
+            {
+                _config = Plugin.Instance.Configuration;
+            }
+            
             _mediaCache = new MediaInfoCache(_logger, _config.CacheExpirationDays);
 
             // 初始化库监听器（仅初始化一次）

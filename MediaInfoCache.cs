@@ -33,8 +33,9 @@ namespace StrmTool
     /// </summary>
     private static string GetCachePath(string strmPath)
     {
-      return Path.GetDirectoryName(strmPath) + Path.DirectorySeparatorChar + 
-             Path.GetFileNameWithoutExtension(strmPath) + ".json";
+      var directory = Path.GetDirectoryName(strmPath);
+      var fileName = Path.GetFileNameWithoutExtension(strmPath) + ".json";
+      return Path.Combine(directory, fileName);
     }
 
     /// <summary>

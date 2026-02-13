@@ -20,44 +20,27 @@ namespace StrmTool
         public LocalizationManager(ILogger logger, ILocalizationManager localizationManager)
         {
             _logger = logger;
-            // 尝试从 localizationManager 获取当前语言
-            _currentCulture = _defaultCulture; // 默认值
+            _currentCulture = _defaultCulture;
             
             try
             {
-                // 尝试获取语言设置
                 var cultures = localizationManager.GetCultures();
                 if (cultures != null)
                 {
-                    int cultureCount = 0;
                     foreach (var culture in cultures)
                     {
-                        cultureCount++;
+                        if (culture.ThreeLetterISOLanguageName == "zho" || 
+                            culture.TwoLetterISOLanguageName == "zh")
+                        {
+                            _currentCulture = "zh-CN";
+                            break;
+                        }
                     }
-                    _logger.LogDebug("StrmTool - Found {0} supported cultures", cultureCount);
-                }
-                
-                // 尝试获取系统配置中的语言设置
-                // 如果未找到语言配置，则使用默认值
-                
-                // 检查是否有 Chinese (Simplified) 语言支持
-                var chineseCulture = localizationManager.FindLanguageInfo("zh-CN");
-                if (chineseCulture != null)
-                {
-                    _logger.LogDebug("StrmTool - Found Chinese (Simplified) culture: {0}", chineseCulture.Name);
-                    
-                    // 尝试确定是否应该使用中文
-                    // 检查系统语言或默认语言是否是中文
-                    _currentCulture = "zh-CN"; // 暂时强制设置为中文
-                }
-                else
-                {
-                    _logger.LogDebug("StrmTool - Chinese (Simplified) culture not found");
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "StrmTool - Failed to get cultures from ILocalizationManager");
+                _logger.LogError(ex, "StrmTool - Failed to get system language from ILocalizationManager");
             }
             
             LoadAllTranslations();
@@ -69,6 +52,12 @@ namespace StrmTool
             var assembly = Assembly.GetExecutingAssembly();
             var resourceNames = assembly.GetManifestResourceNames();
 
+            _logger.LogDebug("StrmTool - Found {0} embedded resources", resourceNames.Length);
+            foreach (var name in resourceNames)
+            {
+                _logger.LogDebug("StrmTool - Resource: {0}", name);
+            }
+
             foreach (var resourceName in resourceNames)
             {
                 if (resourceName.EndsWith(".json"))
@@ -77,6 +66,11 @@ namespace StrmTool
                     {
                         // 解析文化代码（格式：StrmTool.Resources.zh-CN.json）
                         var parts = resourceName.Split('.');
+                        if (parts.Length < 3)
+                        {
+                            _logger.LogWarning("StrmTool - Invalid resource name format: {0}", resourceName);
+                            continue;
+                        }
                         var cultureName = parts[^2];
 
                         using var stream = assembly.GetManifestResourceStream(resourceName);
@@ -100,6 +94,9 @@ namespace StrmTool
                     }
                 }
             }
+
+            _logger.LogInformation("StrmTool - Loaded translations for {0} cultures: {1}", 
+                _translations.Count, string.Join(", ", _translations.Keys));
 
             if (!_translations.ContainsKey(_defaultCulture))
             {
