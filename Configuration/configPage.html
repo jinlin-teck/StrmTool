@@ -34,29 +34,29 @@
     </div>
 
     <script>
-        // 翻译资源
+        // 翻译资源（与后端一致的格式）
         const translations = {
             'en': {
-                'pageTitle': 'Strm Tool Settings',
-                'lblEnableAutoExtract': 'Automatically extract media info for new strm files',
-                'descEnableAutoExtract': 'When enabled, new strm files will automatically extract media info in the background without manual task execution',
-                'lblEnableMediaInfoCache': 'Enable media info caching',
-                'descEnableMediaInfoCache': 'When enabled, extracted media info will be saved to xxx.json files to avoid repeated probing',
-                'lblRefreshDelay': 'Refresh delay (ms)',
-                'descRefreshDelay': 'Milliseconds to wait after each media info refresh to avoid overwhelming remote servers',
-                'btnSave': 'Save',
-                'settingsSaved': 'Settings saved successfully'
+                'StrmTool.PageTitle': 'Strm Tool Settings',
+                'StrmTool.LblEnableAutoExtract': 'Automatically extract media info for new strm files',
+                'StrmTool.DescEnableAutoExtract': 'When enabled, new strm files will automatically extract media info in the background without manual task execution',
+                'StrmTool.LblEnableMediaInfoCache': 'Enable media info caching',
+                'StrmTool.DescEnableMediaInfoCache': 'When enabled, extracted media info will be saved to xxx.json files to avoid repeated probing',
+                'StrmTool.LblRefreshDelay': 'Refresh delay (ms)',
+                'StrmTool.DescRefreshDelay': 'Milliseconds to wait after each media info refresh to avoid overwhelming remote servers',
+                'StrmTool.BtnSave': 'Save',
+                'StrmTool.SettingsSaved': 'Settings saved successfully'
             },
             'zh': {
-                'pageTitle': 'Strm工具设置',
-                'lblEnableAutoExtract': '自动提取新入库 strm 文件的媒体信息',
-                'descEnableAutoExtract': '启用后，新增的 strm 文件会自动在后台执行媒体信息提取，无需手动运行计划任务',
-                'lblEnableMediaInfoCache': '启用媒体信息缓存',
-                'descEnableMediaInfoCache': '启用后，提取的媒体信息会保存到 xxx.json 文件中，避免重复探测',
-                'lblRefreshDelay': '刷新延迟 (毫秒)',
-                'descRefreshDelay': '每次刷新媒体信息后等待的毫秒数，用于避免对远程服务器造成压力',
-                'btnSave': '保存',
-                'settingsSaved': '设置已保存'
+                'StrmTool.PageTitle': 'Strm工具设置',
+                'StrmTool.LblEnableAutoExtract': '自动提取新入库 strm 文件的媒体信息',
+                'StrmTool.DescEnableAutoExtract': '启用后，新增的 strm 文件会自动在后台执行媒体信息提取，无需手动运行计划任务',
+                'StrmTool.LblEnableMediaInfoCache': '启用媒体信息缓存',
+                'StrmTool.DescEnableMediaInfoCache': '启用后，提取的媒体信息会保存到 xxx.json 文件中，避免重复探测',
+                'StrmTool.LblRefreshDelay': '刷新延迟 (毫秒)',
+                'StrmTool.DescRefreshDelay': '每次刷新媒体信息后等待的毫秒数，用于避免对远程服务器造成压力',
+                'StrmTool.BtnSave': '保存',
+                'StrmTool.SettingsSaved': '设置已保存'
             }
         };
 
@@ -104,7 +104,7 @@
             }
         }
 
-        // 翻译函数
+        // 翻译函数（与后端一致的格式）
         function t(key) {
             const culture = getCurrentCulture();
             const langCode = culture.split('-')[0];
@@ -125,14 +125,14 @@
 
         // 应用翻译
         function applyTranslations() {
-            document.getElementById('pageTitle').textContent = t('pageTitle');
-            document.getElementById('lblEnableAutoExtract').textContent = t('lblEnableAutoExtract');
-            document.getElementById('descEnableAutoExtract').textContent = t('descEnableAutoExtract');
-            document.getElementById('lblEnableMediaInfoCache').textContent = t('lblEnableMediaInfoCache');
-            document.getElementById('descEnableMediaInfoCache').textContent = t('descEnableMediaInfoCache');
-            document.getElementById('lblRefreshDelay').textContent = t('lblRefreshDelay');
-            document.getElementById('descRefreshDelay').textContent = t('descRefreshDelay');
-            document.getElementById('btnSave').textContent = t('btnSave');
+            document.getElementById('pageTitle').textContent = t('StrmTool.PageTitle');
+            document.getElementById('lblEnableAutoExtract').textContent = t('StrmTool.LblEnableAutoExtract');
+            document.getElementById('descEnableAutoExtract').textContent = t('StrmTool.DescEnableAutoExtract');
+            document.getElementById('lblEnableMediaInfoCache').textContent = t('StrmTool.LblEnableMediaInfoCache');
+            document.getElementById('descEnableMediaInfoCache').textContent = t('StrmTool.DescEnableMediaInfoCache');
+            document.getElementById('lblRefreshDelay').textContent = t('StrmTool.LblRefreshDelay');
+            document.getElementById('descRefreshDelay').textContent = t('StrmTool.DescRefreshDelay');
+            document.getElementById('btnSave').textContent = t('StrmTool.BtnSave');
         }
 
         var form = this;
@@ -153,7 +153,7 @@
             };
 
             ApiClient.updatePluginConfiguration('6107fc8c-883a-4171-b70e-7590658706B9', config).then(function() {
-                Dashboard.alert(t('settingsSaved'));
+                Dashboard.alert(t('StrmTool.SettingsSaved'));
             });
         }
 
@@ -173,12 +173,5 @@
             // 页面已经加载完成
             initializePage();
         }
-
-        // 打印调试信息
-        console.log('StrmTool - 设置页面加载完成');
-        console.log('StrmTool - getCurrentCulture():', getCurrentCulture());
-        console.log('StrmTool - window.dashboardCulture:', typeof window.dashboardCulture !== 'undefined' ? window.dashboardCulture : 'undefined');
-        console.log('StrmTool - window.Culture:', typeof window.Culture !== 'undefined' ? window.Culture : 'undefined');
-        console.log('StrmTool - html.lang:', document.documentElement.getAttribute('lang') || 'undefined');
     </script>
 </div>

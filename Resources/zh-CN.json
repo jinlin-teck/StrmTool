@@ -14,5 +14,14 @@
   "StrmTool.AlreadyHasCompleteInfo": "{0} 已有完整的媒体信息，跳过",
   "StrmTool.AutoExtractComplete": "{0} 自动提取完成。流数量 {1}→{2}",
   "StrmTool.StrmFileEmpty": "STRM文件是空的：{0}",
-  "StrmTool.CouldNotFindLibraryItem": "找不到路径对应的媒体库项目：{0}"
+  "StrmTool.CouldNotFindLibraryItem": "找不到路径对应的媒体库项目：{0}",
+  "StrmTool.PageTitle": "Strm工具设置",
+  "StrmTool.LblEnableAutoExtract": "自动提取新入库 strm 文件的媒体信息",
+  "StrmTool.DescEnableAutoExtract": "启用后，新增的 strm 文件会自动在后台执行媒体信息提取，无需手动运行计划任务",
+  "StrmTool.LblEnableMediaInfoCache": "启用媒体信息缓存",
+  "StrmTool.DescEnableMediaInfoCache": "启用后，提取的媒体信息会保存到 xxx.json 文件中，避免重复探测",
+  "StrmTool.LblRefreshDelay": "刷新延迟 (毫秒)",
+  "StrmTool.DescRefreshDelay": "每次刷新媒体信息后等待的毫秒数，用于避免对远程服务器造成压力",
+  "StrmTool.BtnSave": "保存",
+  "StrmTool.SettingsSaved": "设置已保存"
 }
