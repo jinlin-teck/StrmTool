@@ -29,6 +29,7 @@ namespace StrmTool
         private readonly IMediaEncoder _mediaEncoder;
         private readonly IMediaStreamRepository _mediaStreamRepository;
         private readonly PluginConfiguration _config;
+        private readonly MediaInfoCache _mediaCache;
         private static LibraryScanListener _scanListener;
 
         public ExtractTask(
@@ -44,6 +45,7 @@ namespace StrmTool
             _mediaEncoder = mediaEncoder;
             _mediaStreamRepository = mediaStreamRepository;
             _config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
+            _mediaCache = new MediaInfoCache(_logger, _config.CacheExpirationDays);
 
             // 初始化库监听器（仅初始化一次）
             if (_scanListener == null && _config.EnableAutoExtract)
@@ -249,8 +251,18 @@ namespace StrmTool
                     var beforeStreams = GetItemMediaStreams(item);
                     _logger.LogTrace("StrmTool - Before: {Count} streams", beforeStreams.Count);
 
-                    // 直接探测媒体流，不调用任何提供商或图像更新
-                    await ProbeStrmMediaStreams(item, cancellationToken);
+                    // 检查缓存
+                    if (_config.EnableMediaInfoCache && _mediaCache.TryGetCachedMediaStreams(item.Path, out var cachedStreams))
+                    {
+                        _mediaStreamRepository.SaveMediaStreams(item.Id, cachedStreams, cancellationToken);
+                        _logger.LogInformation("StrmTool - {Name}: Used cached media info ({Count} streams)", 
+                            item.Name, cachedStreams.Count);
+                    }
+                    else
+                    {
+                        // 直接探测媒体流，不调用任何提供商或图像更新
+                        await ProbeStrmMediaStreams(item, cancellationToken);
+                    }
 
                     var afterStreams = GetItemMediaStreams(item);
                     bool hasVideo = afterStreams.Any(s => s.Type == MediaStreamType.Video);
@@ -331,6 +343,12 @@ namespace StrmTool
                     _mediaStreamRepository.SaveMediaStreams(item.Id, mediaInfo.MediaStreams, cancellationToken);
                     _logger.LogDebug("StrmTool - Successfully saved {Count} media streams for {Name}", 
                         mediaInfo.MediaStreams.Count, item.Name);
+
+                    // 保存缓存
+                    if (_config.EnableMediaInfoCache)
+                    {
+                        await _mediaCache.SaveCacheAsync(item.Path, mediaInfo.MediaStreams, strmContent);
+                    }
                 }
                 else
                 {
@@ -366,8 +384,17 @@ namespace StrmTool
                     return;
                 }
 
-                // 执行探测
-                await ProbeStrmMediaStreams(item, cancellationToken);
+                // 检查缓存
+                if (_config.EnableMediaInfoCache && _mediaCache.TryGetCachedMediaStreams(item.Path, out var cachedStreams))
+                {
+                    _mediaStreamRepository.SaveMediaStreams(item.Id, cachedStreams, cancellationToken);
+                    _logger.LogInformation("StrmTool - Auto-extract: {Name} using cached media info", item.Name);
+                }
+                else
+                {
+                    // 执行探测
+                    await ProbeStrmMediaStreams(item, cancellationToken);
+                }
 
                 var afterStreams = GetItemMediaStreams(item);
                 _logger.LogInformation(

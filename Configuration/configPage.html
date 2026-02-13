@@ -12,6 +12,24 @@
         </div>
         <br />
         <div class="verticalSection">
+            <div class="checkboxContainer">
+                <label>
+                    <input type="checkbox" id="chkEnableMediaInfoCache" />
+                    启用媒体信息缓存
+                </label>
+                <div class="fieldDescription">启用后，提取的媒体信息会保存到 xxx.json 文件中，避免重复探测</div>
+            </div>
+        </div>
+        <br />
+        <div class="verticalSection">
+            <div class="inputContainer">
+                <label for="txtCacheExpirationDays">缓存过期天数</label>
+                <input type="number" id="txtCacheExpirationDays" min="1" step="1" />
+                <div class="fieldDescription">缓存文件超过此天数后会被重新探测</div>
+            </div>
+        </div>
+        <br />
+        <div class="verticalSection">
             <div class="inputContainer">
                 <label for="txtRefreshDelay">刷新延迟 (毫秒)</label>
                 <input type="number" id="txtRefreshDelay" min="0" step="100" />
@@ -28,6 +46,8 @@
         function loadConfig() {
             ApiClient.getPluginConfiguration('6107fc8c-883a-4171-b70e-7590658706B9').then(function(config) {
                 document.getElementById('chkEnableAutoExtract').checked = config.EnableAutoExtract !== false;
+                document.getElementById('chkEnableMediaInfoCache').checked = config.EnableMediaInfoCache !== false;
+                document.getElementById('txtCacheExpirationDays').value = config.CacheExpirationDays || 7;
                 document.getElementById('txtRefreshDelay').value = config.RefreshDelayMs || 1000;
             });
         }
@@ -35,6 +55,8 @@
         function saveConfig() {
             var config = {
                 EnableAutoExtract: document.getElementById('chkEnableAutoExtract').checked,
+                EnableMediaInfoCache: document.getElementById('chkEnableMediaInfoCache').checked,
+                CacheExpirationDays: parseInt(document.getElementById('txtCacheExpirationDays').value) || 7,
                 RefreshDelayMs: parseInt(document.getElementById('txtRefreshDelay').value) || 1000
             };
 
