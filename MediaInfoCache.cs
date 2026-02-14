@@ -33,7 +33,7 @@ namespace StrmTool
     private static string GetCachePath(string strmPath)
     {
       if (string.IsNullOrWhiteSpace(strmPath))
-        throw new ArgumentException("Invalid strm path", nameof(strmPath));
+        return null;
       
       var directory = Path.GetDirectoryName(strmPath);
       if (string.IsNullOrWhiteSpace(directory))
@@ -50,11 +50,16 @@ namespace StrmTool
     {
       mediaStreams = null;
 
+      if (string.IsNullOrWhiteSpace(strmPath))
+      {
+        _logger.LogDebug("StrmTool - Invalid strm path for cache lookup");
+        return false;
+      }
+
       try
       {
         var cachePath = GetCachePath(strmPath);
-
-        if (!File.Exists(cachePath))
+        if (string.IsNullOrWhiteSpace(cachePath) || !File.Exists(cachePath))
         {
           return false;
         }

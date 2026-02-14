@@ -28,9 +28,11 @@ namespace StrmTool
         private readonly IFileSystem _fileSystem;
         private readonly IMediaEncoder _mediaEncoder;
         private readonly IMediaStreamRepository _mediaStreamRepository;
-        private readonly PluginConfiguration _config;
+        private PluginConfiguration _config;
         private readonly MediaInfoCache _mediaCache;
         private LibraryScanListener _scanListener;
+        private SemaphoreSlim _semaphore;
+        private bool _disposed = false;
 
         public ExtractTask(
             ILibraryManager libraryManager,
@@ -62,13 +64,50 @@ namespace StrmTool
             {
                 try
                 {
-                    _scanListener = new LibraryScanListener(_libraryManager, _logger, this, _config);
+                    _scanListener = new LibraryScanListener(_libraryManager, _logger, _config);
+                    _scanListener.StrmFileDetected += OnStrmFileDetected;
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "StrmTool - Failed to initialize library scan listener");
                 }
             }
+        }
+        
+        /// <summary>
+        /// 处理监听器触发的 strm 文件检测事件
+        /// </summary>
+        private void OnStrmFileDetected(object sender, BaseItem item)
+        {
+            // 检查是否启用了自动提取功能
+            RefreshConfig(); // 确保获取最新配置
+            if (!_config.EnableAutoExtract)
+            {
+                var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
+                _logger.LogDebug("StrmTool - Auto-extract is disabled, skipping {Name}", fileName);
+                return;
+            }
+            
+            _ = Task.Run(async () =>
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5)); // 5分钟超时
+                try
+                {
+                    // 延迟确保 Jellyfin 完成初始化
+                    await Task.Delay(_config.RefreshDelayMs, cts.Token);
+                    await ExtractSingleItemAsync(item, cts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
+                    _logger.LogWarning("StrmTool - Extraction cancelled for {Name}", fileName);
+                }
+                catch (Exception ex)
+                {
+                    var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
+                    _logger.LogError(ex, "StrmTool - Error extracting single item: {Name}", fileName);
+                }
+            });
         }
 
         /// <summary>
@@ -94,9 +133,10 @@ namespace StrmTool
 
                 _logger.LogInformation("StrmTool - Found {Count} library root folders", rootFolders.Count);
 
-                var allStrmFiles = new List<BaseItem>();
-
-                // 遍历每个库目录，手动查找 strm 文件
+                // 使用 IEnumerable 流式处理，边扫描边过滤，避免大量内存占用
+                var strmItems = new List<BaseItem>();
+                int totalFound = 0;
+                
                 foreach (var rootFolder in rootFolders)
                 {
                     if (cancellationToken.IsCancellationRequested)
@@ -106,41 +146,39 @@ namespace StrmTool
                     {
                         _logger.LogDebug("StrmTool - Scanning library folder: {Folder}", rootFolder);
                         var strmFilesInFolder = FindStrmFilesInDirectory(rootFolder, cancellationToken);
-                        allStrmFiles.AddRange(strmFilesInFolder);
+                        
+                        foreach (var item in strmFilesInFolder)
+                        {
+                            totalFound++;
+                            if (cancellationToken.IsCancellationRequested)
+                                break;
+
+                            try
+                            {
+                                var mediaStreams = GetItemMediaStreams(item);
+                                bool hasVideo = mediaStreams.Any(s => s.Type == MediaStreamType.Video);
+                                bool hasAudio = mediaStreams.Any(s => s.Type == MediaStreamType.Audio);
+                                
+                                if (!hasVideo || !hasAudio)
+                                {
+                                    strmItems.Add(item);
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "StrmTool - Error checking media streams for {Name}", item.Name);
+                                strmItems.Add(item);
+                            }
+                        }
                     }
                     catch (Exception ex)
                     {
                         _logger.LogError(ex, "StrmTool - Error scanning folder {Folder}", rootFolder);
                     }
                 }
-
-                _logger.LogInformation("StrmTool - Found {Count} strm files in library", allStrmFiles.Count);
-
-                // 过滤需要刷新的文件
-                var strmItems = new List<BaseItem>();
                 
-                foreach (var item in allStrmFiles)
-                {
-                    if (cancellationToken.IsCancellationRequested)
-                        break;
-
-                    try
-                    {
-                        var mediaStreams = GetItemMediaStreams(item);
-                        bool hasVideo = mediaStreams.Any(s => s.Type == MediaStreamType.Video);
-                        bool hasAudio = mediaStreams.Any(s => s.Type == MediaStreamType.Audio);
-                        
-                        if (!hasVideo || !hasAudio)
-                        {
-                            strmItems.Add(item);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "StrmTool - Error checking media streams for {Name}", item.Name);
-                        strmItems.Add(item);
-                    }
-                }
+                _logger.LogInformation("StrmTool - Found {Count} strm files in library, {NeedRefresh} need media info", 
+                    totalFound, strmItems.Count);
 
                 _logger.LogInformation("StrmTool - {Count} strm files need metadata refresh", strmItems.Count);
 
@@ -186,7 +224,7 @@ namespace StrmTool
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "StrmTool - Error enumerating files in {Directory}", current);
+                        _logger.LogWarning(ex, "StrmTool - Error enumerating files in {Directory}", current);
                     }
 
                     foreach (var strmPath in files)
@@ -208,7 +246,7 @@ namespace StrmTool
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogError(ex, "StrmTool - Error processing file {Path}", strmPath);
+                            _logger.LogWarning(ex, "StrmTool - Error processing file {Path}", strmPath);
                         }
                     }
 
@@ -219,7 +257,7 @@ namespace StrmTool
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "StrmTool - Error enumerating directories in {Directory}", current);
+                        _logger.LogWarning(ex, "StrmTool - Error enumerating directories in {Directory}", current);
                     }
 
                     foreach (var sub in subDirs)
@@ -243,15 +281,18 @@ namespace StrmTool
         /// </summary>
         private async Task ProcessStrmFiles(List<BaseItem> strmItems, IProgress<double> progress, CancellationToken cancellationToken)
         {
+            // 刷新配置（获取最新设置）
+            RefreshConfig();
+            
             int processed = 0;
             int total = strmItems.Count;
 
-            // 使用并行处理，但限制并发数避免服务器压力
-            var semaphore = new SemaphoreSlim(_config.MaxConcurrentExtract); // 限制并发数
+            // 初始化信号量
+            _semaphore = new SemaphoreSlim(_config.MaxConcurrentExtract); // 限制并发数
 
-            var tasks = strmItems.Select(async item =>
+             var tasks = strmItems.Select(async item =>
             {
-                await semaphore.WaitAsync(cancellationToken);
+                await _semaphore.WaitAsync(cancellationToken);
                 try
                 {
                     if (cancellationToken.IsCancellationRequested)
@@ -304,7 +345,7 @@ namespace StrmTool
                 }
                 finally
                 {
-                    semaphore.Release();
+                    _semaphore.Release();
                     processed++;
                     double percent = (double)processed / total * 100;
                     progress.Report(percent);
@@ -513,6 +554,18 @@ namespace StrmTool
             }
         }
 
+        private void RefreshConfig()
+        {
+            if (Plugin.Instance == null)
+            {
+                _logger.LogDebug("StrmTool - Plugin instance not available, using existing configuration");
+            }
+            else
+            {
+                _config = Plugin.Instance.Configuration;
+            }
+        }
+        
         public string Category => Plugin.Instance?.GetLocalizedString("StrmTool.TaskCategory") ?? "Strm Tool";
         public string Key => "StrmToolTask";
         public string Description => Plugin.Instance?.GetLocalizedString("StrmTool.TaskDescription") ?? "Extract media technical information (codec, resolution, subtitles) from strm files";
@@ -525,7 +578,27 @@ namespace StrmTool
 
         public void Dispose()
         {
-            CleanupListener();
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+        
+        protected virtual void Dispose(bool disposing)
+        {
+            if (_disposed)
+                return;
+                
+            if (disposing)
+            {
+                CleanupListener();
+                _semaphore?.Dispose();
+            }
+            
+            _disposed = true;
+        }
+        
+        ~ExtractTask()
+        {
+            Dispose(false);
         }
     }
 }

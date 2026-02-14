@@ -39,6 +39,10 @@
         </div>
         <br />
         <button id="btnSave" data-role="button">Save</button>
+        <br /><br />
+        <div style="color: #ff6600; font-size: 12px;">
+            <span id="bottomWarning">Important: All changes require a Jellyfin server restart to take full effect.</span>
+        </div>
     </div>
 
     <script>
@@ -55,7 +59,8 @@
                 'StrmTool.LblMaxConcurrentExtract': 'Maximum concurrent extractions',
                 'StrmTool.DescMaxConcurrentExtract': 'Maximum number of concurrent media info extraction tasks',
                 'StrmTool.BtnSave': 'Save',
-                'StrmTool.SettingsSaved': 'Settings saved successfully'
+                'StrmTool.SettingsSaved': 'Settings saved successfully',
+                'StrmTool.RestartWarning': 'Important: All changes require a Jellyfin server restart to take full effect.'
             },
             'zh': {
                 'StrmTool.PageTitle': 'Strm工具设置',
@@ -68,7 +73,8 @@
                 'StrmTool.LblMaxConcurrentExtract': '最大并发提取数',
                 'StrmTool.DescMaxConcurrentExtract': '媒体信息提取任务的最大并发数',
                 'StrmTool.BtnSave': '保存',
-                'StrmTool.SettingsSaved': '设置已保存'
+                'StrmTool.SettingsSaved': '设置已保存',
+                'StrmTool.RestartWarning': '重要提示：所有设置的更改都需要重启 Jellyfin 服务器才能完全生效。'
             }
         };
 
@@ -147,6 +153,7 @@
             document.getElementById('lblMaxConcurrentExtract').textContent = t('StrmTool.LblMaxConcurrentExtract');
             document.getElementById('descMaxConcurrentExtract').textContent = t('StrmTool.DescMaxConcurrentExtract');
             document.getElementById('btnSave').textContent = t('StrmTool.BtnSave');
+            document.getElementById('bottomWarning').textContent = t('StrmTool.RestartWarning');
         }
 
         var form = this;
@@ -169,6 +176,7 @@
             };
 
             ApiClient.updatePluginConfiguration('6107fc8c-883a-4171-b70e-7590658706B9', config).then(function() {
+                // 显示保存成功提示（纯文本）
                 Dashboard.alert(t('StrmTool.SettingsSaved'));
             });
         }
@@ -189,5 +197,21 @@
             // 页面已经加载完成
             initializePage();
         }
+        
+        // 防止重复初始化（Jellyfin 单页应用场景）
+        let initialized = false;
+        function safeInitialize() {
+            if (!initialized) {
+                initialized = true;
+                initializePage();
+            }
+        }
+        
+        // 页面可见性变化时重新加载配置
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                loadConfig();
+            }
+        });
     </script>
 </div>
