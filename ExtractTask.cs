@@ -247,7 +247,7 @@ namespace StrmTool
             int total = strmItems.Count;
 
             // 使用并行处理，但限制并发数避免服务器压力
-            var semaphore = new SemaphoreSlim(5); // 限制 5 个并发
+            var semaphore = new SemaphoreSlim(_config.MaxConcurrentExtract); // 限制并发数
 
             var tasks = strmItems.Select(async item =>
             {

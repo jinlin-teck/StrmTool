@@ -23,5 +23,7 @@
   "StrmTool.LblRefreshDelay": "Refresh delay (ms)",
   "StrmTool.DescRefreshDelay": "Milliseconds to wait after each media info refresh to avoid overwhelming remote servers",
   "StrmTool.BtnSave": "Save",
-  "StrmTool.SettingsSaved": "Settings saved successfully"
+  "StrmTool.SettingsSaved": "Settings saved successfully",
+  "StrmTool.LblMaxConcurrentExtract": "Maximum concurrent extractions",
+  "StrmTool.DescMaxConcurrentExtract": "Maximum number of concurrent media info extraction tasks"
 }

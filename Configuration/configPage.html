@@ -30,6 +30,14 @@
             </div>
         </div>
         <br />
+        <div class="verticalSection">
+            <div class="inputContainer">
+                <label for="txtMaxConcurrentExtract" id="lblMaxConcurrentExtract">Maximum concurrent extractions</label>
+                <input type="number" id="txtMaxConcurrentExtract" min="1" max="50" step="1" />
+                <div class="fieldDescription" id="descMaxConcurrentExtract">Maximum number of concurrent media info extraction tasks</div>
+            </div>
+        </div>
+        <br />
         <button id="btnSave" data-role="button">Save</button>
     </div>
 
@@ -44,6 +52,8 @@
                 'StrmTool.DescEnableMediaInfoCache': 'When enabled, extracted media info will be saved to xxx.json files to avoid repeated probing',
                 'StrmTool.LblRefreshDelay': 'Refresh delay (ms)',
                 'StrmTool.DescRefreshDelay': 'Milliseconds to wait after each media info refresh to avoid overwhelming remote servers',
+                'StrmTool.LblMaxConcurrentExtract': 'Maximum concurrent extractions',
+                'StrmTool.DescMaxConcurrentExtract': 'Maximum number of concurrent media info extraction tasks',
                 'StrmTool.BtnSave': 'Save',
                 'StrmTool.SettingsSaved': 'Settings saved successfully'
             },
@@ -55,6 +65,8 @@
                 'StrmTool.DescEnableMediaInfoCache': '启用后，提取的媒体信息会保存到 xxx.json 文件中，避免重复探测',
                 'StrmTool.LblRefreshDelay': '刷新延迟 (毫秒)',
                 'StrmTool.DescRefreshDelay': '每次刷新媒体信息后等待的毫秒数，用于避免对远程服务器造成压力',
+                'StrmTool.LblMaxConcurrentExtract': '最大并发提取数',
+                'StrmTool.DescMaxConcurrentExtract': '媒体信息提取任务的最大并发数',
                 'StrmTool.BtnSave': '保存',
                 'StrmTool.SettingsSaved': '设置已保存'
             }
@@ -132,6 +144,8 @@
             document.getElementById('descEnableMediaInfoCache').textContent = t('StrmTool.DescEnableMediaInfoCache');
             document.getElementById('lblRefreshDelay').textContent = t('StrmTool.LblRefreshDelay');
             document.getElementById('descRefreshDelay').textContent = t('StrmTool.DescRefreshDelay');
+            document.getElementById('lblMaxConcurrentExtract').textContent = t('StrmTool.LblMaxConcurrentExtract');
+            document.getElementById('descMaxConcurrentExtract').textContent = t('StrmTool.DescMaxConcurrentExtract');
             document.getElementById('btnSave').textContent = t('StrmTool.BtnSave');
         }
 
@@ -142,6 +156,7 @@
                 document.getElementById('chkEnableAutoExtract').checked = config.EnableAutoExtract !== false;
                 document.getElementById('chkEnableMediaInfoCache').checked = config.EnableMediaInfoCache !== false;
                 document.getElementById('txtRefreshDelay').value = config.RefreshDelayMs || 1000;
+                document.getElementById('txtMaxConcurrentExtract').value = config.MaxConcurrentExtract || 5;
             });
         }
 
@@ -149,7 +164,8 @@
             var config = {
                 EnableAutoExtract: document.getElementById('chkEnableAutoExtract').checked,
                 EnableMediaInfoCache: document.getElementById('chkEnableMediaInfoCache').checked,
-                RefreshDelayMs: parseInt(document.getElementById('txtRefreshDelay').value) || 1000
+                RefreshDelayMs: parseInt(document.getElementById('txtRefreshDelay').value) || 1000,
+                MaxConcurrentExtract: parseInt(document.getElementById('txtMaxConcurrentExtract').value) || 5
             };
 
             ApiClient.updatePluginConfiguration('6107fc8c-883a-4171-b70e-7590658706B9', config).then(function() {

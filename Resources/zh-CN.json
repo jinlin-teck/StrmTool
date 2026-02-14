@@ -23,5 +23,7 @@
   "StrmTool.LblRefreshDelay": "刷新延迟 (毫秒)",
   "StrmTool.DescRefreshDelay": "每次刷新媒体信息后等待的毫秒数，用于避免对远程服务器造成压力",
   "StrmTool.BtnSave": "保存",
-  "StrmTool.SettingsSaved": "设置已保存"
+  "StrmTool.SettingsSaved": "设置已保存",
+  "StrmTool.LblMaxConcurrentExtract": "最大并发提取数",
+  "StrmTool.DescMaxConcurrentExtract": "媒体信息提取任务的最大并发数"
 }
