@@ -43,3 +43,51 @@ Jellyfin 插件，用于从 strm 文件中提取媒体技术信息（codec、分
 - v1.0.0.3 相比之前版本不会调用任何第三方元数据服务，已有的元数据（标题、描述、海报等）不会被修改
 - 配置变更后需要重启 Jellyfin 服务器才能完全生效
 - 媒体信息缓存文件格式为 `strm_filename.json`，位于 strm 文件同目录
+
+---
+
+# StrmTool for Jellyfin
+
+Jellyfin plugin for extracting media technical information (codec, resolution, subtitles) from strm files, accelerating the playback speed of strm media files.
+
+🎉 **Major Update** Congratulations! All initial project goals have been completed, functionality is fully aligned with the emby branch, version updated to v2.0.0.0! Happy Valentine's Day and early Spring Festival wishes!
+
+## Core Features
+
+1. **Early Media Information Extraction**: Immediately requests and obtains media technical information (audio/video codec, resolution, subtitles, etc.) from remote servers after strm files are added to the library
+2. **Automatic Extraction for New Files**: Newly added strm files can automatically extract media information in the background after enabling the feature, no manual intervention required
+3. **Media Information Caching**: Automatically caches extracted media information as JSON files with the same name (saved in the same directory as the strm file), allowing direct import during next extraction
+4. **Scheduled Task Support**: Provides `Extract Strm Media Info` scheduled task, supporting manual triggering and scheduled execution
+5. **Configuration Interface**: Provides plugin settings page to adjust automatic extraction switch, refresh delay time, persistent cache switch, and maximum concurrency
+
+Compatible with Jellyfin 10.11.0+ (tested with latest 10.11.6, other versions please test yourself)
+
+## Installation Method
+
+1. Create a new folder `StrmTool` in Jellyfin's `plugin` directory
+2. Place the compiled `StrmTool.dll` into this folder
+3. Restart Jellyfin service
+
+## Usage Instructions
+
+### Automatic Extraction
+
+Click the "Settings" button on the plugin details page to adjust the following configuration items:
+
+- **Automatically Extract Newly Added Strm Files**: When enabled, newly added strm files will automatically perform media information extraction in the background (Default: Enabled)
+- **Enable Media Information Cache**: When enabled, extracted media information will be saved as xxx.json files (in the same directory as the strm file) to avoid repeated probing (Default: Enabled)
+- **Refresh Delay (ms)**: Milliseconds to wait after each media information refresh, used to avoid putting pressure on remote servers (Default: 1000ms)
+- **Maximum Concurrency**: Maximum concurrency for media information extraction tasks, range: 1-50 (Default: 5). Reasonable settings can avoid server overload.
+
+### Manual Execution
+
+1. Go to Jellyfin backend → Scheduled Tasks
+2. Find the `Extract Strm Media Info` task under the `Strm Tool` category
+3. Can be run manually or set to trigger on schedule
+
+## Notes
+
+- Please select the corresponding plugin version based on your Jellyfin version
+- v1.0.0.3 compared to previous versions will not call any third-party metadata services, existing metadata (title, description, posters, etc.) will not be modified
+- Configuration changes require restarting the Jellyfin server to take full effect
+- Media information cache file format is `strm_filename.json`, located in the same directory as the strm file

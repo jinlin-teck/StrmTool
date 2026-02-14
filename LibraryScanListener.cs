@@ -7,77 +7,86 @@ using MediaBrowser.Controller.Library;
 
 namespace StrmTool
 {
-  public class LibraryScanListener : IDisposable
-  {
-    private readonly ILogger _logger;
-    private readonly ILibraryManager _libraryManager;
-    private PluginConfiguration _config;
-    private bool _isDisposed = false;
-
-    // 使用事件解耦，而不是直接依赖 ExtractTask
-    public event EventHandler<BaseItem> StrmFileDetected;
-
-    /// <summary>
-    /// 获取或设置配置（线程安全）
-    /// </summary>
-    public PluginConfiguration Config
+    public class LibraryScanListener : IDisposable
     {
-        get => _config;
-        set => _config = value ?? throw new ArgumentNullException(nameof(value));
-    }
+        private readonly ILogger _logger;
+        private readonly ILibraryManager _libraryManager;
+        private PluginConfiguration _config;
+        private bool _isDisposed = false;
 
-    public LibraryScanListener(
-      ILibraryManager libraryManager,
-      ILogger logger,
-      PluginConfiguration config)
-    {
-      _logger = logger;
-      _libraryManager = libraryManager;
-      _config = config;
+        // 使用事件解耦，而不是直接依赖 ExtractTask
+        public event EventHandler<BaseItem> StrmFileDetected;
 
-      // 订阅事件
-      _libraryManager.ItemAdded += OnItemAdded;
-      _logger.LogInformation("StrmTool - Library scan listener initialized");
-    }
-
-    private void OnItemAdded(object sender, ItemChangeEventArgs e)
-    {
-      if (_isDisposed || !_config.EnableAutoExtract)
-        return;
-
-      try
-      {
-        var item = e.Item;
-
-        // 检查是否是 strm 文件
-        if (item.Path?.EndsWith(".strm", StringComparison.OrdinalIgnoreCase) ?? false)
+        /// <summary>
+        /// 获取或设置配置（线程安全）
+        /// </summary>
+        public PluginConfiguration Config
         {
-          // 使用实际文件名而不是 item.Name，因为 item.Name 可能还没有完全解析
-          var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
-          _logger.LogInformation("StrmTool - New strm file detected: {Name} ({Path})", fileName, item.Path);
-
-          // 触发事件通知，而不是直接调用 ExtractTask 方法
-          StrmFileDetected?.Invoke(this, item);
+            get => _config;
+            set => _config = value ?? throw new ArgumentNullException(nameof(value));
         }
-      }
-      catch (Exception ex)
-      {
-        _logger.LogError(ex, "StrmTool - Error in OnItemAdded handler");
-      }
+
+        public LibraryScanListener(
+            ILibraryManager libraryManager,
+            ILogger logger,
+            PluginConfiguration config)
+        {
+            _logger = logger;
+            _libraryManager = libraryManager;
+            _config = config;
+
+            // 订阅事件
+            _libraryManager.ItemAdded += OnItemAdded;
+            _logger.LogInformation("StrmTool - Library scan listener initialized");
+        }
+
+        private void OnItemAdded(object sender, ItemChangeEventArgs e)
+        {
+            if (_isDisposed)
+                return;
+
+            // 从 Plugin.Instance 获取最新配置
+            if (Plugin.Instance != null)
+            {
+                _config = Plugin.Instance.Configuration;
+            }
+
+            if (!_config.EnableAutoExtract)
+                return;
+
+            try
+            {
+                var item = e.Item;
+
+                // 检查是否是 strm 文件
+                if (item.Path?.EndsWith(".strm", StringComparison.OrdinalIgnoreCase) ?? false)
+                {
+                    // 使用实际文件名而不是 item.Name，因为 item.Name 可能还没有完全解析
+                    var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
+                    _logger.LogInformation("StrmTool - New strm file detected: {Name} ({Path})", fileName, item.Path);
+
+                    // 触发事件通知，而不是直接调用 ExtractTask 方法
+                    StrmFileDetected?.Invoke(this, item);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "StrmTool - Error in OnItemAdded handler");
+            }
+        }
+
+        public void Dispose()
+        {
+            if (_isDisposed)
+                return;
+
+            if (_libraryManager != null)
+            {
+                _libraryManager.ItemAdded -= OnItemAdded;
+            }
+
+            _isDisposed = true;
+            _logger.LogInformation("StrmTool - Library scan listener disposed");
+        }
     }
-
-    public void Dispose()
-    {
-      if (_isDisposed)
-        return;
-
-      if (_libraryManager != null)
-      {
-        _libraryManager.ItemAdded -= OnItemAdded;
-      }
-
-      _isDisposed = true;
-      _logger.LogInformation("StrmTool - Library scan listener disposed");
-    }
-  }
 }

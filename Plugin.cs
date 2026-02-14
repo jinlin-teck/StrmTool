@@ -83,7 +83,7 @@ namespace StrmTool
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "StrmTool - Failed to get localized string: {0}", key);
+                _logger.LogError(ex, "StrmTool - Failed to get localized string: {Key}", key);
                 return key;
             }
         }

@@ -352,8 +352,8 @@ namespace StrmTool
                 finally
                 {
                     _semaphore.Release();
-                    processed++;
-                    double percent = (double)processed / total * 100;
+                    int current = Interlocked.Increment(ref processed);
+                    double percent = (double)current / total * 100;
                     progress.Report(percent);
                 }
             });
