@@ -118,7 +118,7 @@
                 
             } catch (e) {
                 console.error('StrmTool - 无法获取语言设置:', e);
-                return 'zh-CN'; // 强制使用中文作为默认值
+                return 'en'; // 默认使用英文，与后端一致
             }
         }
 
@@ -196,15 +196,6 @@
         } else {
             // 页面已经加载完成
             initializePage();
-        }
-        
-        // 防止重复初始化（Jellyfin 单页应用场景）
-        let initialized = false;
-        function safeInitialize() {
-            if (!initialized) {
-                initialized = true;
-                initializePage();
-            }
         }
         
         // 页面可见性变化时重新加载配置

@@ -9,17 +9,26 @@ namespace StrmTool
 {
   public class LibraryScanListener : IDisposable
   {
-    private readonly ILogger<ExtractTask> _logger;
+    private readonly ILogger _logger;
     private readonly ILibraryManager _libraryManager;
-    private readonly PluginConfiguration _config;
+    private PluginConfiguration _config;
     private bool _isDisposed = false;
-    
+
     // 使用事件解耦，而不是直接依赖 ExtractTask
     public event EventHandler<BaseItem> StrmFileDetected;
 
+    /// <summary>
+    /// 获取或设置配置（线程安全）
+    /// </summary>
+    public PluginConfiguration Config
+    {
+        get => _config;
+        set => _config = value ?? throw new ArgumentNullException(nameof(value));
+    }
+
     public LibraryScanListener(
       ILibraryManager libraryManager,
-      ILogger<ExtractTask> logger,
+      ILogger logger,
       PluginConfiguration config)
     {
       _logger = logger;

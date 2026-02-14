@@ -33,6 +33,7 @@ namespace StrmTool
         private LibraryScanListener _scanListener;
         private SemaphoreSlim _semaphore;
         private bool _disposed = false;
+        private readonly object _semaphoreLock = new object();
 
         public ExtractTask(
             ILibraryManager libraryManager,
@@ -79,32 +80,31 @@ namespace StrmTool
         /// </summary>
         private void OnStrmFileDetected(object sender, BaseItem item)
         {
+            var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
+
             // 检查是否启用了自动提取功能
             RefreshConfig(); // 确保获取最新配置
             if (!_config.EnableAutoExtract)
             {
-                var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
                 _logger.LogDebug("StrmTool - Auto-extract is disabled, skipping {Name}", fileName);
                 return;
             }
-            
+
             _ = Task.Run(async () =>
             {
                 using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5)); // 5分钟超时
                 try
                 {
                     // 延迟确保 Jellyfin 完成初始化
-                    await Task.Delay(_config.RefreshDelayMs, cts.Token);
-                    await ExtractSingleItemAsync(item, cts.Token);
+                    await Task.Delay(_config.RefreshDelayMs, cts.Token).ConfigureAwait(false);
+                    await ExtractSingleItemAsync(item, cts.Token).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
-                    var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
                     _logger.LogWarning("StrmTool - Extraction cancelled for {Name}", fileName);
                 }
                 catch (Exception ex)
                 {
-                    var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
                     _logger.LogError(ex, "StrmTool - Error extracting single item: {Name}", fileName);
                 }
             });
@@ -287,10 +287,16 @@ namespace StrmTool
             int processed = 0;
             int total = strmItems.Count;
 
-            // 初始化信号量
-            _semaphore = new SemaphoreSlim(_config.MaxConcurrentExtract); // 限制并发数
+            // 初始化信号量（线程安全地延迟初始化）
+            if (_semaphore == null)
+            {
+                lock (_semaphoreLock)
+                {
+                    _semaphore ??= new SemaphoreSlim(_config.MaxConcurrentExtract); // 限制并发数
+                }
+            }
 
-             var tasks = strmItems.Select(async item =>
+            var tasks = strmItems.Select(async item =>
             {
                 await _semaphore.WaitAsync(cancellationToken);
                 try
@@ -309,7 +315,7 @@ namespace StrmTool
                     if (_config.EnableMediaInfoCache && _mediaCache.TryGetCachedMediaStreams(item.Path, out var cachedStreams))
                     {
                         _mediaStreamRepository.SaveMediaStreams(item.Id, cachedStreams, cancellationToken);
-                        _logger.LogInformation("StrmTool - {Name}: Used cached media info ({Count} streams)", 
+                        _logger.LogInformation("StrmTool - {Name}: Used cached media info ({Count} streams)",
                             item.Name, cachedStreams.Count);
                     }
                     else
@@ -364,11 +370,11 @@ namespace StrmTool
         /// </summary>
         private async Task ProbeStrmMediaStreams(BaseItem item, CancellationToken cancellationToken)
         {
+            // 使用实际文件名而不是 item.Name，因为 item.Name 可能还没有完全解析
+            var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
+
             try
             {
-                // 使用实际文件名而不是 item.Name，因为 item.Name 可能还没有完全解析
-                var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
-                
                 // 读取 STRM 文件内容（通常是远程媒体的 URL 或路径）
                 string strmContent = File.ReadAllText(item.Path).Trim();
 
@@ -380,7 +386,7 @@ namespace StrmTool
 
                 // 确定媒体类型
                 bool isAudio = item.MediaType == MediaType.Audio;
-                
+
                 // 使用 MediaEncoder 直接探测远程媒体文件
                 // 这会调用 FFprobe 来获取媒体流信息，不涉及任何元数据提供商
                 var mediaInfo = await _mediaEncoder.GetMediaInfo(
@@ -394,20 +400,20 @@ namespace StrmTool
                         MediaType = isAudio ? DlnaProfileType.Audio : DlnaProfileType.Video,
                         ExtractChapters = false,
                     },
-                    cancellationToken);
+                    cancellationToken).ConfigureAwait(false);
 
                 // 将探测到的媒体流保存到数据库
                 if (mediaInfo?.MediaStreams != null && mediaInfo.MediaStreams.Count > 0)
                 {
                     _mediaStreamRepository.SaveMediaStreams(item.Id, mediaInfo.MediaStreams, cancellationToken);
-                    _logger.LogDebug("StrmTool - Successfully saved {Count} media streams for {Name}", 
+                    _logger.LogDebug("StrmTool - Successfully saved {Count} media streams for {Name}",
                         mediaInfo.MediaStreams.Count, fileName);
 
-                        // 保存缓存
-                        if (_config.EnableMediaInfoCache)
-                        {
-                            await _mediaCache.SaveCacheAsync(item.Path, mediaInfo.MediaStreams, strmContent, cancellationToken);
-                        }
+                    // 保存缓存
+                    if (_config.EnableMediaInfoCache)
+                    {
+                        await _mediaCache.SaveCacheAsync(item.Path, mediaInfo.MediaStreams, strmContent, cancellationToken).ConfigureAwait(false);
+                    }
                 }
                 else
                 {
@@ -416,7 +422,6 @@ namespace StrmTool
             }
             catch (Exception ex)
             {
-                var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
                 _logger.LogError(ex, "StrmTool - Error probing STRM content for {Name}", fileName);
                 // 不抛出异常，继续处理下一个文件
             }
@@ -427,10 +432,11 @@ namespace StrmTool
         /// </summary>
         public async Task ExtractSingleItemAsync(BaseItem item, CancellationToken cancellationToken)
         {
+            // 使用实际文件名而不是 item.Name，因为 item.Name 可能还没有完全解析
+            var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
+
             try
             {
-                // 使用实际文件名而不是 item.Name，因为 item.Name 可能还没有完全解析
-                var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
                 _logger.LogInformation("StrmTool - Auto-extracting media info for new strm file: {Name}", fileName);
 
                 var beforeStreams = GetItemMediaStreams(item);
@@ -455,7 +461,7 @@ namespace StrmTool
                 else
                 {
                     // 执行探测
-                    await ProbeStrmMediaStreams(item, cancellationToken);
+                    await ProbeStrmMediaStreams(item, cancellationToken).ConfigureAwait(false);
                 }
 
                 var afterStreams = GetItemMediaStreams(item);
@@ -468,7 +474,7 @@ namespace StrmTool
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "StrmTool - Error in auto-extract for {Name}", item.Name);
+                _logger.LogError(ex, "StrmTool - Error in auto-extract for {Name}", fileName);
             }
         }
 
@@ -586,13 +592,14 @@ namespace StrmTool
         {
             if (_disposed)
                 return;
-                
+
             if (disposing)
             {
                 CleanupListener();
                 _semaphore?.Dispose();
+                _semaphore = null;
             }
-            
+
             _disposed = true;
         }
         

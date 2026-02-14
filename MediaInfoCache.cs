@@ -13,7 +13,7 @@ namespace StrmTool
 {
   public class MediaInfoCache
   {
-    private readonly ILogger<ExtractTask> _logger;
+    private readonly ILogger _logger;
     
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -22,7 +22,7 @@ namespace StrmTool
       DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
-    public MediaInfoCache(ILogger<ExtractTask> logger)
+    public MediaInfoCache(ILogger logger)
     {
       _logger = logger;
     }
@@ -59,7 +59,13 @@ namespace StrmTool
       try
       {
         var cachePath = GetCachePath(strmPath);
-        if (string.IsNullOrWhiteSpace(cachePath) || !File.Exists(cachePath))
+        if (string.IsNullOrWhiteSpace(cachePath))
+        {
+          _logger.LogDebug("StrmTool - Failed to get cache path for: {Path}", strmPath);
+          return false;
+        }
+
+        if (!File.Exists(cachePath))
         {
           return false;
         }
@@ -90,7 +96,18 @@ namespace StrmTool
     {
       try
       {
+        if (string.IsNullOrWhiteSpace(strmPath))
+        {
+          _logger.LogDebug("StrmTool - Invalid strm path for cache save");
+          return;
+        }
+
         var cachePath = GetCachePath(strmPath);
+        if (string.IsNullOrWhiteSpace(cachePath))
+        {
+          _logger.LogDebug("StrmTool - Failed to get cache path for: {Path}", strmPath);
+          return;
+        }
 
         var cache = new MediaInfoCacheData
         {
@@ -104,7 +121,7 @@ namespace StrmTool
         var json = JsonSerializer.Serialize(cache, JsonOptions);
 
         // 使用异步写入避免阻塞
-        await File.WriteAllTextAsync(cachePath, json, cancellationToken);
+        await File.WriteAllTextAsync(cachePath, json, cancellationToken).ConfigureAwait(false);
 
         _logger.LogDebug("StrmTool - Saved cache to {Path}", cachePath);
       }
@@ -122,7 +139,18 @@ namespace StrmTool
     {
       try
       {
+        if (string.IsNullOrWhiteSpace(strmPath))
+        {
+          _logger.LogDebug("StrmTool - Invalid strm path for cache clear");
+          return;
+        }
+
         var cachePath = GetCachePath(strmPath);
+        if (string.IsNullOrWhiteSpace(cachePath))
+        {
+          _logger.LogDebug("StrmTool - Failed to get cache path for: {Path}", strmPath);
+          return;
+        }
 
         if (File.Exists(cachePath))
         {

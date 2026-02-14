@@ -4,7 +4,6 @@ using System.Globalization;
 using System.IO;
 using System.Reflection;
 using System.Text.Json;
-using System.Threading.Tasks;
 using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
 using MediaBrowser.Common.Configuration;
@@ -19,23 +18,33 @@ namespace StrmTool
         private readonly string _defaultCulture = "en";
         private readonly ILocalizationManager _localizationManager;
         private readonly IApplicationPaths _applicationPaths;
+        private readonly string _currentCulture;
 
         public LocalizationManager(ILogger logger, ILocalizationManager localizationManager, IApplicationPaths applicationPaths = null)
         {
             _logger = logger;
             _localizationManager = localizationManager;
             _applicationPaths = applicationPaths;
-            
+
             LoadAllTranslations();
-            
-            var initialCulture = GetCurrentCulture();
-            _logger.LogInformation("StrmTool - Initial culture detected as: {0}", initialCulture);
+
+            // 启动时读取一次配置，之后保持不变（重启生效）
+            _currentCulture = DetectSystemCulture();
+            _logger.LogInformation("StrmTool - Initial culture detected as: {0}", _currentCulture);
         }
 
         /// <summary>
-        /// 获取当前的文化代码，动态检测，而不是缓存
+        /// 获取当前的文化代码（启动时检测，重启生效）
         /// </summary>
         private string GetCurrentCulture()
+        {
+            return _currentCulture;
+        }
+
+        /// <summary>
+        /// 检测系统文化代码（从配置或系统环境）
+        /// </summary>
+        private string DetectSystemCulture()
         {
             // 首先尝试从 Jellyfin 配置文件读取 UICulture
             var configCulture = GetCultureFromJellyfinConfig();
@@ -49,7 +58,7 @@ namespace StrmTool
                 // 尝试从系统 UI 文化获取
                 var systemCulture = CultureInfo.CurrentUICulture ?? CultureInfo.InstalledUICulture;
                 var twoLetterLang = systemCulture.TwoLetterISOLanguageName;
-                
+
                 // 优先处理中文
                 if (twoLetterLang == "zh")
                 {
@@ -58,7 +67,7 @@ namespace StrmTool
                         return "zh-CN";
                     }
                 }
-                
+
                 // 检查完全匹配的文化代码
                 if (_translations.ContainsKey(twoLetterLang))
                 {
@@ -69,13 +78,13 @@ namespace StrmTool
             {
                 _logger.LogDebug(ex, "StrmTool - Failed to detect system language");
             }
-            
+
             // 回退到默认语言
             return _defaultCulture;
         }
 
         /// <summary>
-        /// 从 Jellyfin 配置文件读取 UICulture
+        /// 从 Jellyfin 配置文件读取 UICulture（启动时调用一次）
         /// </summary>
         private string GetCultureFromJellyfinConfig()
         {
@@ -98,6 +107,7 @@ namespace StrmTool
                 if (uiCultureElement != null && !string.IsNullOrEmpty(uiCultureElement.Value))
                 {
                     var culture = uiCultureElement.Value.Trim();
+                    _logger.LogDebug("StrmTool - Loaded UICulture from config: {0}", culture);
                     return culture;
                 }
             }
