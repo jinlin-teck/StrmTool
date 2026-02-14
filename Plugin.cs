@@ -28,7 +28,7 @@ namespace StrmTool
             Instance = this;
             _localizationManager = localizationManager;
             _logger = logger;
-            _customLocalization = new LocalizationManager(logger, localizationManager);
+            _customLocalization = new LocalizationManager(logger, localizationManager, applicationPaths);
         }
 
         public override string Description

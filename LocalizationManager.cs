@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Reflection;
 using System.Text.Json;
 using System.Threading.Tasks;
+using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Model.Globalization;
@@ -15,36 +17,96 @@ namespace StrmTool
         private readonly ILogger _logger;
         private readonly Dictionary<string, Dictionary<string, string>> _translations = new Dictionary<string, Dictionary<string, string>>();
         private readonly string _defaultCulture = "en";
-        private readonly string _currentCulture;
+        private readonly ILocalizationManager _localizationManager;
+        private readonly IApplicationPaths _applicationPaths;
 
-        public LocalizationManager(ILogger logger, ILocalizationManager localizationManager)
+        public LocalizationManager(ILogger logger, ILocalizationManager localizationManager, IApplicationPaths applicationPaths = null)
         {
             _logger = logger;
-            _currentCulture = _defaultCulture;
+            _localizationManager = localizationManager;
+            _applicationPaths = applicationPaths;
             
+            LoadAllTranslations();
+            
+            var initialCulture = GetCurrentCulture();
+            _logger.LogInformation("StrmTool - Initial culture detected as: {0}", initialCulture);
+        }
+
+        /// <summary>
+        /// 获取当前的文化代码，动态检测，而不是缓存
+        /// </summary>
+        private string GetCurrentCulture()
+        {
+            // 首先尝试从 Jellyfin 配置文件读取 UICulture
+            var configCulture = GetCultureFromJellyfinConfig();
+            if (!string.IsNullOrEmpty(configCulture) && _translations.ContainsKey(configCulture))
+            {
+                return configCulture;
+            }
+
             try
             {
-                var cultures = localizationManager.GetCultures();
-                if (cultures != null)
+                // 尝试从系统 UI 文化获取
+                var systemCulture = CultureInfo.CurrentUICulture ?? CultureInfo.InstalledUICulture;
+                var twoLetterLang = systemCulture.TwoLetterISOLanguageName;
+                
+                // 优先处理中文
+                if (twoLetterLang == "zh")
                 {
-                    foreach (var culture in cultures)
+                    if (_translations.ContainsKey("zh-CN"))
                     {
-                        if (culture.ThreeLetterISOLanguageName == "zho" || 
-                            culture.TwoLetterISOLanguageName == "zh")
-                        {
-                            _currentCulture = "zh-CN";
-                            break;
-                        }
+                        return "zh-CN";
                     }
+                }
+                
+                // 检查完全匹配的文化代码
+                if (_translations.ContainsKey(twoLetterLang))
+                {
+                    return twoLetterLang;
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "StrmTool - Failed to get system language from ILocalizationManager");
+                _logger.LogDebug(ex, "StrmTool - Failed to detect system language");
             }
             
-            LoadAllTranslations();
-            _logger.LogDebug("StrmTool - Current culture set to: {0}", _currentCulture);
+            // 回退到默认语言
+            return _defaultCulture;
+        }
+
+        /// <summary>
+        /// 从 Jellyfin 配置文件读取 UICulture
+        /// </summary>
+        private string GetCultureFromJellyfinConfig()
+        {
+            try
+            {
+                if (_applicationPaths == null)
+                {
+                    return null;
+                }
+
+                var configPath = Path.Combine(_applicationPaths.ConfigurationDirectoryPath, "system.xml");
+                if (!File.Exists(configPath))
+                {
+                    _logger.LogInformation("StrmTool - Jellyfin config file not found at {0}", configPath);
+                    return null;
+                }
+
+                var doc = XDocument.Load(configPath);
+                var uiCultureElement = doc.Root?.Element("UICulture");
+                if (uiCultureElement != null && !string.IsNullOrEmpty(uiCultureElement.Value))
+                {
+                    var culture = uiCultureElement.Value.Trim();
+                    return culture;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "StrmTool - Failed to read Jellyfin config file");
+            }
+
+            return null;
         }
 
         private void LoadAllTranslations()
@@ -106,7 +168,9 @@ namespace StrmTool
 
         public string GetLocalizedString(string key, params object[] args)
         {
-            return GetLocalizedString(key, _currentCulture, args);
+            // 动态获取当前文化，而不是使用缓存的值
+            var currentCulture = GetCurrentCulture();
+            return GetLocalizedString(key, currentCulture, args);
         }
 
         public string GetLocalizedString(string key, string culture = null, params object[] args)
@@ -114,7 +178,7 @@ namespace StrmTool
             if (string.IsNullOrWhiteSpace(key))
                 return key;
 
-            var actualCulture = string.IsNullOrWhiteSpace(culture) ? _currentCulture : culture;
+            var actualCulture = string.IsNullOrWhiteSpace(culture) ? GetCurrentCulture() : culture;
 
             // 尝试使用指定的文化
             if (_translations.TryGetValue(actualCulture, out var cultureTranslations) &&
