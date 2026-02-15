@@ -63,7 +63,8 @@ namespace StrmTool
                     IEnumerable<string> files = Enumerable.Empty<string>();
                     try
                     {
-                        files = Directory.EnumerateFiles(current, "*.strm");
+                        files = Directory.EnumerateFiles(current)
+                            .Where(path => path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase));
                     }
                     catch (Exception ex)
                     {
@@ -227,7 +228,7 @@ namespace StrmTool
 
             try
             {
-                var strmContent = File.ReadAllText(item.Path).Trim();
+                var strmContent = ReadStrmSourcePath(item.Path);
                 if (string.IsNullOrWhiteSpace(strmContent))
                 {
                     _logger.LogWarning("StrmTool - STRM file is empty: {Path}", item.Path);
@@ -290,6 +291,20 @@ namespace StrmTool
             }
 
             return MediaProtocol.File;
+        }
+
+        private static string ReadStrmSourcePath(string strmFilePath)
+        {
+            foreach (var line in File.ReadLines(strmFilePath))
+            {
+                var sourcePath = line.Trim();
+                if (!string.IsNullOrWhiteSpace(sourcePath))
+                {
+                    return sourcePath;
+                }
+            }
+
+            return string.Empty;
         }
     }
 }

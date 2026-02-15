@@ -256,9 +256,13 @@ namespace StrmTool
         {
             // 使用实际文件名而不是 item.Name，因为 item.Name 可能还没有完全解析
             var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
+            var lockTaken = false;
 
             try
             {
+                await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+                lockTaken = true;
+
                 _logger.LogInformation("StrmTool - Auto-extracting media info for new strm file: {Name}", fileName);
 
                 var beforeStreams = _mediaInfoService.GetItemMediaStreams(item);
@@ -301,6 +305,13 @@ namespace StrmTool
             catch (Exception ex)
             {
                 _logger.LogError(ex, "StrmTool - Error in auto-extract for {Name}", fileName);
+            }
+            finally
+            {
+                if (lockTaken)
+                {
+                    _semaphore.Release();
+                }
             }
         }
 

@@ -109,6 +109,7 @@ namespace StrmTool
         /// </summary>
         public async Task SaveCacheAsync(string strmPath, IEnumerable<MediaStream> mediaStreams, CancellationToken cancellationToken = default)
         {
+            string tempPath = null;
             try
             {
                 if (string.IsNullOrWhiteSpace(strmPath))
@@ -135,7 +136,7 @@ namespace StrmTool
                 var json = JsonSerializer.Serialize(cache, JsonOptions);
 
                 // 原子写入：先写临时文件，成功后替换目标文件
-                var tempPath = cachePath + ".tmp";
+                tempPath = cachePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
                 await File.WriteAllTextAsync(tempPath, json, cancellationToken).ConfigureAwait(false);
                 if (File.Exists(cachePath))
                 {
@@ -151,6 +152,17 @@ namespace StrmTool
             catch (Exception ex)
             {
                 _logger.LogError(ex, "StrmTool - Error saving cache to {Path}", strmPath);
+                if (!string.IsNullOrWhiteSpace(tempPath) && File.Exists(tempPath))
+                {
+                    try
+                    {
+                        File.Delete(tempPath);
+                    }
+                    catch (Exception cleanupEx)
+                    {
+                        _logger.LogDebug(cleanupEx, "StrmTool - Failed to cleanup temp cache file {Path}", tempPath);
+                    }
+                }
                 // 不抛出异常，缓存失败不应中断主流程
             }
         }
