@@ -220,7 +220,7 @@ namespace StrmTool
                         continue;
                     }
 
-                    var baseName = fileName.Substring(0, fileName.Length - CacheFileSuffix.Length);
+                    var baseName = fileName.Remove(fileName.Length - CacheFileSuffix.Length);
                     var strmPath = Path.Combine(Path.GetDirectoryName(jsonFile) ?? string.Empty, baseName + ".strm");
 
                     if (File.Exists(strmPath))

@@ -24,6 +24,7 @@ namespace StrmTool
         private LibraryScanListener _scanListener;
         private SemaphoreSlim _semaphore;
         private bool _disposed = false;
+        private readonly object _semaphoreLock = new object();
 
         public ExtractTask(
             ILibraryManager libraryManager,
@@ -47,9 +48,6 @@ namespace StrmTool
             
             _mediaCache = new MediaInfoCache(_logger);
 
-            // 初始化信号量控制并发
-            _semaphore = new SemaphoreSlim(_config.MaxConcurrentExtract);
-
             // 初始化库监听器
             if (_config.EnableAutoExtract)
             {
@@ -64,6 +62,19 @@ namespace StrmTool
                 }
             }
         }
+
+        private void EnsureSemaphore()
+        {
+            var targetCount = _config.MaxConcurrentExtract;
+            lock (_semaphoreLock)
+            {
+                if (_semaphore == null || _semaphore.CurrentCount != targetCount)
+                {
+                    _semaphore?.Dispose();
+                    _semaphore = new SemaphoreSlim(targetCount);
+                }
+            }
+        }
         
         /// <summary>
         /// 处理监听器触发的 strm 文件检测事件
@@ -72,15 +83,15 @@ namespace StrmTool
         {
             var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
 
-            // 检查是否启用了自动提取功能
-            RefreshConfig(); // 确保获取最新配置
+            RefreshConfig();
+            EnsureSemaphore();
+
             if (!_config.EnableAutoExtract)
             {
                 _logger.LogDebug("StrmTool - Auto-extract is disabled, skipping {Name}", fileName);
                 return;
             }
 
-            // 启动后台任务处理（不阻塞事件处理）
             _ = Task.Run(async () =>
             {
                 using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5)); // 5分钟超时
@@ -172,8 +183,8 @@ namespace StrmTool
         /// </summary>
         private async Task ProcessStrmFiles(List<BaseItem> strmItems, IProgress<double> progress, CancellationToken cancellationToken)
         {
-            // 刷新配置（获取最新设置）
             RefreshConfig();
+            EnsureSemaphore();
             
             int processed = 0;
             int total = strmItems.Count;

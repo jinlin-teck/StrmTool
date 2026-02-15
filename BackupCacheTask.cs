@@ -21,6 +21,8 @@ namespace StrmTool
         private readonly ILogger<BackupCacheTask> _logger;
         private readonly StrmMediaInfoService _mediaInfoService;
         private readonly MediaInfoCache _mediaCache;
+        private PluginConfiguration _config;
+        private SemaphoreSlim _semaphore;
 
         public BackupCacheTask(
             ILibraryManager libraryManager,
@@ -31,11 +33,37 @@ namespace StrmTool
             _mediaInfoService = new StrmMediaInfoService(libraryManager, mediaEncoder, mediaStreamRepository, logger);
             _logger = logger;
             _mediaCache = new MediaInfoCache(logger);
+            _semaphore = new SemaphoreSlim(5);
+        }
+
+        private void RefreshConfig()
+        {
+            if (Plugin.Instance == null)
+            {
+                _config = new PluginConfiguration();
+            }
+            else
+            {
+                _config = Plugin.Instance.Configuration;
+            }
+        }
+
+        private void EnsureSemaphore()
+        {
+            var targetCount = _config.MaxConcurrentExtract;
+            if (_semaphore?.CurrentCount != targetCount)
+            {
+                _semaphore?.Dispose();
+                _semaphore = new SemaphoreSlim(targetCount);
+            }
         }
 
         public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
         {
             _logger.LogInformation("StrmTool - Starting media info backup to cache files...");
+
+            RefreshConfig();
+            EnsureSemaphore();
 
             var strmItems = _mediaInfoService.GetAllStrmItems(cancellationToken);
 
@@ -54,19 +82,20 @@ namespace StrmTool
             int probedAttempted = 0;
             int probedSucceeded = 0;
 
-            foreach (var item in strmItems)
+            var tasks = strmItems.Select(async item =>
             {
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    break;
-                }
-
+                await _semaphore.WaitAsync(cancellationToken);
                 try
                 {
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
                     if (_mediaCache.HasCacheFile(item.Path))
                     {
-                        skippedHasCache++;
-                        continue;
+                        Interlocked.Increment(ref skippedHasCache);
+                        return;
                     }
 
                     var mediaStreams = _mediaInfoService.GetItemMediaStreams(item);
@@ -75,11 +104,11 @@ namespace StrmTool
 
                     if (!(hasVideo || hasAudio))
                     {
-                        probedAttempted++;
+                        Interlocked.Increment(ref probedAttempted);
                         var probedStreams = await _mediaInfoService.ProbeAndSaveMediaStreamsAsync(item, cancellationToken).ConfigureAwait(false);
                         if (probedStreams.Count > 0)
                         {
-                            probedSucceeded++;
+                            Interlocked.Increment(ref probedSucceeded);
                             mediaStreams = probedStreams;
                         }
                         else
@@ -90,12 +119,14 @@ namespace StrmTool
 
                     if (mediaStreams.Count == 0)
                     {
-                        skippedNoStreams++;
-                        continue;
+                        Interlocked.Increment(ref skippedNoStreams);
+                        return;
                     }
 
                     await _mediaCache.SaveCacheAsync(item.Path, mediaStreams, cancellationToken).ConfigureAwait(false);
-                    saved++;
+                    Interlocked.Increment(ref saved);
+
+                    await Task.Delay(_config.RefreshDelayMs, cancellationToken).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -103,10 +134,13 @@ namespace StrmTool
                 }
                 finally
                 {
-                    processed++;
-                    progress.Report((double)processed / total * 100);
+                    _semaphore.Release();
+                    int current = Interlocked.Increment(ref processed);
+                    progress.Report((double)current / total * 100);
                 }
-            }
+            });
+
+            await Task.WhenAll(tasks);
 
             progress.Report(100);
             _logger.LogInformation(

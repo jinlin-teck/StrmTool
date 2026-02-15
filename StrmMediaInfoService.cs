@@ -32,6 +32,9 @@ namespace StrmTool
         private static readonly ConcurrentDictionary<Type, Func<BaseItem, List<MediaStream>>> MediaStreamResolvers
             = new ConcurrentDictionary<Type, Func<BaseItem, List<MediaStream>>>();
 
+        private const int MaxResolverCacheSize = 100;
+        private static readonly object _resolverCacheLock = new object();
+
         public StrmMediaInfoService(
             ILibraryManager libraryManager,
             IMediaEncoder mediaEncoder,
@@ -161,11 +164,31 @@ namespace StrmTool
                 }
             }
 
+            CleanupResolverCacheIfNeeded();
+
             return strmItems
                 .Where(i => i != null && !string.IsNullOrWhiteSpace(i.Path))
                 .GroupBy(i => i.Path, StringComparer.OrdinalIgnoreCase)
                 .Select(g => g.First())
                 .ToList();
+        }
+
+        private static void CleanupResolverCacheIfNeeded()
+        {
+            if (MediaStreamResolvers.Count >= MaxResolverCacheSize)
+            {
+                lock (_resolverCacheLock)
+                {
+                    if (MediaStreamResolvers.Count >= MaxResolverCacheSize)
+                    {
+                        var keysToRemove = MediaStreamResolvers.Keys.Take(MaxResolverCacheSize / 2).ToList();
+                        foreach (var key in keysToRemove)
+                        {
+                            MediaStreamResolvers.TryRemove(key, out _);
+                        }
+                    }
+                }
+            }
         }
 
         /// <summary>
