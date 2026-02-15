@@ -49,6 +49,10 @@ namespace StrmTool
             get { return _id; }
         }
 
+        /// <summary>
+        /// 获取插件配置页面信息
+        /// </summary>
+        /// <returns>返回包含配置页面的集合</returns>
         public IEnumerable<PluginPageInfo> GetPages()
         {
             return new[]

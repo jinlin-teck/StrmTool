@@ -80,6 +80,7 @@ namespace StrmTool
                 return;
             }
 
+            // 启动后台任务处理（不阻塞事件处理）
             _ = Task.Run(async () =>
             {
                 using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5)); // 5分钟超时
@@ -95,9 +96,9 @@ namespace StrmTool
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "StrmTool - Error extracting single item: {Name}", fileName);
+                    _logger.LogError(ex, "StrmTool - Error in auto-extract background task for {Name}", fileName);
                 }
-            });
+            }).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -358,6 +359,7 @@ namespace StrmTool
             _disposed = true;
         }
         
+        // 注意：避免在析构器中处理托管资源，仅作为安全网
         ~ExtractTask()
         {
             Dispose(false);

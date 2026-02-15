@@ -44,6 +44,12 @@ namespace StrmTool
             _logger = logger;
         }
 
+        /// <summary>
+        /// 递归查找目录下所有的 strm 文件
+        /// </summary>
+        /// <param name="directoryPath">要扫描的目录路径</param>
+        /// <param name="cancellationToken">取消令牌</param>
+        /// <returns>找到的所有 strm 文件对应的库条目列表</returns>
         public List<BaseItem> FindStrmFilesInDirectory(string directoryPath, CancellationToken cancellationToken)
         {
             var strmFiles = new List<BaseItem>();
@@ -87,12 +93,12 @@ namespace StrmTool
                             }
                             else
                             {
-                                _logger.LogWarning("StrmTool - Could not find library item for path: {Path}", strmPath);
+                                _logger.LogDebug("StrmTool - Could not find library item for path: {Path}", strmPath);
                             }
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogWarning(ex, "StrmTool - Error processing file {Path}", strmPath);
+                            _logger.LogDebug(ex, "StrmTool - Error processing file {Path}", strmPath);
                         }
                     }
 
@@ -125,6 +131,11 @@ namespace StrmTool
             return strmFiles;
         }
 
+        /// <summary>
+        /// 获取库中所有的 strm 文件（去重）
+        /// </summary>
+        /// <param name="cancellationToken">取消令牌</param>
+        /// <returns>所有 strm 文件对应的库条目列表，永不为 null</returns>
         public List<BaseItem> GetAllStrmItems(CancellationToken cancellationToken)
         {
             var rootFolders = _libraryManager.GetVirtualFolders()
@@ -157,6 +168,11 @@ namespace StrmTool
                 .ToList();
         }
 
+        /// <summary>
+        /// 获取库条目的媒体流信息
+        /// </summary>
+        /// <param name="item">库条目对象</param>
+        /// <returns>媒体流列表，若无法获取则返回空列表</returns>
         public List<MediaStream> GetItemMediaStreams(BaseItem item)
         {
             try
@@ -217,6 +233,12 @@ namespace StrmTool
             }
         }
 
+        /// <summary>
+        /// 保存库条目的媒体流信息
+        /// </summary>
+        /// <param name="itemId">库条目ID</param>
+        /// <param name="mediaStreams">要保存的媒体流列表</param>
+        /// <param name="cancellationToken">取消令牌</param>
         public void SaveMediaStreams(Guid itemId, List<MediaStream> mediaStreams, CancellationToken cancellationToken)
         {
             _mediaStreamRepository.SaveMediaStreams(itemId, mediaStreams, cancellationToken);

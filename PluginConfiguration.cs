@@ -8,6 +8,9 @@ namespace StrmTool
         private int _refreshDelayMs = 1000;
         private int _maxConcurrentExtract = 5;
 
+        /// <summary>
+        /// 刷新延迟时间（毫秒）
+        /// </summary>
         public int RefreshDelayMs
         {
             get => _refreshDelayMs;
@@ -25,7 +28,7 @@ namespace StrmTool
         public bool EnableMediaInfoCache { get; set; } = true;
 
         /// <summary>
-        /// 提取任务的并发数限制
+        /// 提取任务的最大并发数（范围：1-50）
         /// </summary>
         public int MaxConcurrentExtract
         {
