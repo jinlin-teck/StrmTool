@@ -120,17 +120,10 @@ namespace StrmTool
 
                 var json = JsonSerializer.Serialize(cache, JsonOptions);
 
-                // 原子写入：先写临时文件，成功后重命名
+                // 原子写入：先写临时文件，成功后替换目标文件
                 var tempPath = cachePath + ".tmp";
                 await File.WriteAllTextAsync(tempPath, json, cancellationToken).ConfigureAwait(false);
-                
-                // 在 Windows 上，如果目标文件存在，Replace 需要备份文件
-                // 使用 Delete + Move 以获得更好的兼容性
-                if (File.Exists(cachePath))
-                {
-                    File.Delete(cachePath);
-                }
-                File.Move(tempPath, cachePath);
+                File.Replace(tempPath, cachePath, null);
 
                 _logger.LogDebug("StrmTool - Saved cache to {Path}", cachePath);
             }

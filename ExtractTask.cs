@@ -60,6 +60,9 @@ namespace StrmTool
             
             _mediaCache = new MediaInfoCache(_logger);
 
+            // 初始化信号量控制并发
+            _semaphore = new SemaphoreSlim(_config.MaxConcurrentExtract);
+
             // 初始化库监听器
             if (_config.EnableAutoExtract)
             {
@@ -287,15 +290,6 @@ namespace StrmTool
             int processed = 0;
             int total = strmItems.Count;
 
-            // 初始化信号量（线程安全地延迟初始化）
-            if (_semaphore == null)
-            {
-                lock (_semaphoreLock)
-                {
-                    _semaphore ??= new SemaphoreSlim(_config.MaxConcurrentExtract); // 限制并发数
-                }
-            }
-
             var tasks = strmItems.Select(async item =>
             {
                 await _semaphore.WaitAsync(cancellationToken);
@@ -303,6 +297,7 @@ namespace StrmTool
                 {
                     if (cancellationToken.IsCancellationRequested)
                     {
+                        _semaphore.Release();
                         return;
                     }
 

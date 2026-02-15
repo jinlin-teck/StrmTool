@@ -17,15 +17,6 @@ namespace StrmTool
         // 使用事件解耦，而不是直接依赖 ExtractTask
         public event EventHandler<BaseItem> StrmFileDetected;
 
-        /// <summary>
-        /// 获取或设置配置（线程安全）
-        /// </summary>
-        public PluginConfiguration Config
-        {
-            get => _config;
-            set => _config = value ?? throw new ArgumentNullException(nameof(value));
-        }
-
         public LibraryScanListener(
             ILibraryManager libraryManager,
             ILogger logger,

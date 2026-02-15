@@ -76,7 +76,15 @@ namespace StrmTool
 
                 if (args.Length > 0 && !string.IsNullOrEmpty(translation) && translation != key)
                 {
-                    return string.Format(translation, args);
+                    try
+                    {
+                        return string.Format(translation, args);
+                    }
+                    catch (FormatException ex)
+                    {
+                        _logger.LogError(ex, "StrmTool - Invalid format string for key: {Key}", key);
+                        return translation;  // 返回未格式化的翻译
+                    }
                 }
 
                 return translation;

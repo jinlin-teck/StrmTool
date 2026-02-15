@@ -178,9 +178,7 @@ namespace StrmTool
 
         public string GetLocalizedString(string key, params object[] args)
         {
-            // 动态获取当前文化，而不是使用缓存的值
-            var currentCulture = GetCurrentCulture();
-            return GetLocalizedString(key, currentCulture, args);
+            return GetLocalizedString(key, _currentCulture, args);
         }
 
         public string GetLocalizedString(string key, string culture = null, params object[] args)
