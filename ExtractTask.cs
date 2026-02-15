@@ -1,9 +1,7 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -11,13 +9,8 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Persistence;
-using MediaBrowser.Model.Dto;
-using MediaBrowser.Model.Dlna;
-using MediaBrowser.Model.IO;
-using MediaBrowser.Model.MediaInfo;
 using MediaBrowser.Model.Tasks;
 using MediaBrowser.Model.Entities;
-using Jellyfin.Data.Enums;
 
 namespace StrmTool
 {
@@ -25,28 +18,22 @@ namespace StrmTool
     {
         private readonly ILogger<ExtractTask> _logger;
         private readonly ILibraryManager _libraryManager;
-        private readonly IFileSystem _fileSystem;
-        private readonly IMediaEncoder _mediaEncoder;
-        private readonly IMediaStreamRepository _mediaStreamRepository;
+        private readonly StrmMediaInfoService _mediaInfoService;
         private PluginConfiguration _config;
         private readonly MediaInfoCache _mediaCache;
         private LibraryScanListener _scanListener;
         private SemaphoreSlim _semaphore;
         private bool _disposed = false;
-        private readonly object _semaphoreLock = new object();
 
         public ExtractTask(
             ILibraryManager libraryManager,
-            ILogger<ExtractTask> logger,
-            IFileSystem fileSystem,
             IMediaEncoder mediaEncoder,
-            IMediaStreamRepository mediaStreamRepository)
+            IMediaStreamRepository mediaStreamRepository,
+            ILogger<ExtractTask> logger)
         {
             _libraryManager = libraryManager;
             _logger = logger;
-            _fileSystem = fileSystem;
-            _mediaEncoder = mediaEncoder;
-            _mediaStreamRepository = mediaStreamRepository;
+            _mediaInfoService = new StrmMediaInfoService(libraryManager, mediaEncoder, mediaStreamRepository, logger);
             
             if (Plugin.Instance == null)
             {
@@ -129,54 +116,32 @@ namespace StrmTool
             try
             {
                 // 方法1：使用更安全的方式获取所有库根目录
-                var rootFolders = _libraryManager.GetVirtualFolders()
-                    .SelectMany(vf => vf.Locations)
-                    .Distinct()
-                    .ToList();
-
-                _logger.LogInformation("StrmTool - Found {Count} library root folders", rootFolders.Count);
-
-                // 使用 IEnumerable 流式处理，边扫描边过滤，避免大量内存占用
+                var allStrmItems = _mediaInfoService.GetAllStrmItems(cancellationToken);
                 var strmItems = new List<BaseItem>();
-                int totalFound = 0;
-                
-                foreach (var rootFolder in rootFolders)
+                int totalFound = allStrmItems.Count;
+
+                foreach (var item in allStrmItems)
                 {
                     if (cancellationToken.IsCancellationRequested)
+                    {
                         break;
+                    }
 
                     try
                     {
-                        _logger.LogDebug("StrmTool - Scanning library folder: {Folder}", rootFolder);
-                        var strmFilesInFolder = FindStrmFilesInDirectory(rootFolder, cancellationToken);
-                        
-                        foreach (var item in strmFilesInFolder)
-                        {
-                            totalFound++;
-                            if (cancellationToken.IsCancellationRequested)
-                                break;
+                        var mediaStreams = _mediaInfoService.GetItemMediaStreams(item);
+                        bool hasVideo = mediaStreams.Any(s => s.Type == MediaStreamType.Video);
+                        bool hasAudio = mediaStreams.Any(s => s.Type == MediaStreamType.Audio);
 
-                            try
-                            {
-                                var mediaStreams = GetItemMediaStreams(item);
-                                bool hasVideo = mediaStreams.Any(s => s.Type == MediaStreamType.Video);
-                                bool hasAudio = mediaStreams.Any(s => s.Type == MediaStreamType.Audio);
-                                
-                                if (!hasVideo || !hasAudio)
-                                {
-                                    strmItems.Add(item);
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogError(ex, "StrmTool - Error checking media streams for {Name}", item.Name);
-                                strmItems.Add(item);
-                            }
+                        if (!(hasVideo || hasAudio))
+                        {
+                            strmItems.Add(item);
                         }
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "StrmTool - Error scanning folder {Folder}", rootFolder);
+                        _logger.LogError(ex, "StrmTool - Error checking media streams for {Name}", item.Name);
+                        strmItems.Add(item);
                     }
                 }
                 
@@ -202,84 +167,6 @@ namespace StrmTool
         }
 
         /// <summary>
-        /// 在目录中递归查找 strm 文件
-        /// </summary>
-        private List<BaseItem> FindStrmFilesInDirectory(string directoryPath, CancellationToken cancellationToken)
-        {
-            var strmFiles = new List<BaseItem>();
-
-            var dirs = new Stack<string>();
-            dirs.Push(directoryPath);
-
-            while (dirs.Count > 0)
-            {
-                if (cancellationToken.IsCancellationRequested)
-                    break;
-
-                var current = dirs.Pop();
-                try
-                {
-                    // 使用 EnumerateFiles/EnumerateDirectories 以减少一次性内存占用
-                    IEnumerable<string> files = Enumerable.Empty<string>();
-                    try
-                    {
-                        files = Directory.EnumerateFiles(current, "*.strm");
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "StrmTool - Error enumerating files in {Directory}", current);
-                    }
-
-                    foreach (var strmPath in files)
-                    {
-                        if (cancellationToken.IsCancellationRequested)
-                            break;
-
-                        try
-                        {
-                            var item = _libraryManager.FindByPath(strmPath, false);
-                            if (item != null)
-                            {
-                                strmFiles.Add(item);
-                            }
-                            else
-                            {
-                                _logger.LogWarning("StrmTool - Could not find library item for path: {Path}", strmPath);
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "StrmTool - Error processing file {Path}", strmPath);
-                        }
-                    }
-
-                    IEnumerable<string> subDirs = Enumerable.Empty<string>();
-                    try
-                    {
-                        subDirs = Directory.EnumerateDirectories(current);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "StrmTool - Error enumerating directories in {Directory}", current);
-                    }
-
-                    foreach (var sub in subDirs)
-                    {
-                        if (cancellationToken.IsCancellationRequested)
-                            break;
-                        dirs.Push(sub);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "StrmTool - Error scanning directory {Directory}", current);
-                }
-            }
-
-            return strmFiles;
-        }
-
-        /// <summary>
         /// 处理 strm 文件
         /// </summary>
         private async Task ProcessStrmFiles(List<BaseItem> strmItems, IProgress<double> progress, CancellationToken cancellationToken)
@@ -297,29 +184,31 @@ namespace StrmTool
                 {
                     if (cancellationToken.IsCancellationRequested)
                     {
-                        _semaphore.Release();
                         return;
                     }
 
                     _logger.LogDebug("StrmTool - Processing {Name}", item.Name);
 
-                    var beforeStreams = GetItemMediaStreams(item);
+                    var beforeStreams = _mediaInfoService.GetItemMediaStreams(item);
                     _logger.LogTrace("StrmTool - Before: {Count} streams", beforeStreams.Count);
 
                     // 检查缓存
                     if (_config.EnableMediaInfoCache && _mediaCache.TryGetCachedMediaStreams(item.Path, out var cachedStreams))
                     {
-                        _mediaStreamRepository.SaveMediaStreams(item.Id, cachedStreams, cancellationToken);
+                        _mediaInfoService.SaveMediaStreams(item.Id, cachedStreams, cancellationToken);
                         _logger.LogInformation("StrmTool - {Name}: Used cached media info ({Count} streams)",
                             item.Name, cachedStreams.Count);
                     }
                     else
                     {
-                        // 直接探测媒体流，不调用任何提供商或图像更新
-                        await ProbeStrmMediaStreams(item, cancellationToken);
+                        var probedStreams = await _mediaInfoService.ProbeAndSaveMediaStreamsAsync(item, cancellationToken).ConfigureAwait(false);
+                        if (_config.EnableMediaInfoCache && probedStreams.Count > 0)
+                        {
+                            await _mediaCache.SaveCacheAsync(item.Path, probedStreams, cancellationToken).ConfigureAwait(false);
+                        }
                     }
 
-                    var afterStreams = GetItemMediaStreams(item);
+                    var afterStreams = _mediaInfoService.GetItemMediaStreams(item);
                     bool hasVideo = afterStreams.Any(s => s.Type == MediaStreamType.Video);
                     bool hasAudio = afterStreams.Any(s => s.Type == MediaStreamType.Audio);
 
@@ -332,9 +221,9 @@ namespace StrmTool
                         hasAudio
                     );
 
-                    if (!hasVideo || !hasAudio)
+                    if (!(hasVideo || hasAudio))
                     {
-                        _logger.LogWarning("StrmTool - {Name} may still lack full media info", item.Name);
+                        _logger.LogWarning("StrmTool - {Name} may still lack media stream info", item.Name);
                     }
 
                     // 添加延迟，避免对远程服务器造成压力
@@ -361,68 +250,6 @@ namespace StrmTool
         }
 
         /// <summary>
-        /// 直接探测 STRM 文件的媒体流，避免调用元数据提供商
-        /// </summary>
-        private async Task ProbeStrmMediaStreams(BaseItem item, CancellationToken cancellationToken)
-        {
-            // 使用实际文件名而不是 item.Name，因为 item.Name 可能还没有完全解析
-            var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
-
-            try
-            {
-                // 读取 STRM 文件内容（通常是远程媒体的 URL 或路径）
-                string strmContent = File.ReadAllText(item.Path).Trim();
-
-                if (string.IsNullOrWhiteSpace(strmContent))
-                {
-                    _logger.LogWarning("StrmTool - STRM file is empty: {Path}", item.Path);
-                    return;
-                }
-
-                // 确定媒体类型
-                bool isAudio = item.MediaType == MediaType.Audio;
-
-                // 使用 MediaEncoder 直接探测远程媒体文件
-                // 这会调用 FFprobe 来获取媒体流信息，不涉及任何元数据提供商
-                var mediaInfo = await _mediaEncoder.GetMediaInfo(
-                    new MediaInfoRequest
-                    {
-                        MediaSource = new MediaSourceInfo
-                        {
-                            Path = strmContent,
-                            Protocol = GetProtocolFromPath(strmContent),
-                        },
-                        MediaType = isAudio ? DlnaProfileType.Audio : DlnaProfileType.Video,
-                        ExtractChapters = false,
-                    },
-                    cancellationToken).ConfigureAwait(false);
-
-                // 将探测到的媒体流保存到数据库
-                if (mediaInfo?.MediaStreams != null && mediaInfo.MediaStreams.Count > 0)
-                {
-                    _mediaStreamRepository.SaveMediaStreams(item.Id, mediaInfo.MediaStreams, cancellationToken);
-                    _logger.LogDebug("StrmTool - Successfully saved {Count} media streams for {Name}",
-                        mediaInfo.MediaStreams.Count, fileName);
-
-                    // 保存缓存
-                    if (_config.EnableMediaInfoCache)
-                    {
-                        await _mediaCache.SaveCacheAsync(item.Path, mediaInfo.MediaStreams, strmContent, cancellationToken).ConfigureAwait(false);
-                    }
-                }
-                else
-                {
-                    _logger.LogDebug("StrmTool - No media streams found for {Name}", fileName);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "StrmTool - Error probing STRM content for {Name}", fileName);
-                // 不抛出异常，继续处理下一个文件
-            }
-        }
-
-        /// <summary>
         /// 提取单个 strm 文件的媒体信息（用于自动提取）
         /// </summary>
         public async Task ExtractSingleItemAsync(BaseItem item, CancellationToken cancellationToken)
@@ -434,32 +261,36 @@ namespace StrmTool
             {
                 _logger.LogInformation("StrmTool - Auto-extracting media info for new strm file: {Name}", fileName);
 
-                var beforeStreams = GetItemMediaStreams(item);
+                var beforeStreams = _mediaInfoService.GetItemMediaStreams(item);
                 _logger.LogDebug("StrmTool - Before: {Count} streams", beforeStreams.Count);
 
                 // 检查是否已有完整的媒体流
                 bool hasVideo = beforeStreams.Any(s => s.Type == MediaStreamType.Video);
                 bool hasAudio = beforeStreams.Any(s => s.Type == MediaStreamType.Audio);
 
-                if (hasVideo && hasAudio)
+                if (hasVideo || hasAudio)
                 {
-                    _logger.LogInformation("StrmTool - {Name} already has complete media info, skipping", fileName);
+                    _logger.LogInformation("StrmTool - {Name} already has media stream info, skipping", fileName);
                     return;
                 }
 
                 // 检查缓存
                 if (_config.EnableMediaInfoCache && _mediaCache.TryGetCachedMediaStreams(item.Path, out var cachedStreams))
                 {
-                    _mediaStreamRepository.SaveMediaStreams(item.Id, cachedStreams, cancellationToken);
+                    _mediaInfoService.SaveMediaStreams(item.Id, cachedStreams, cancellationToken);
                     _logger.LogInformation("StrmTool - Auto-extract: {Name} using cached media info", fileName);
                 }
                 else
                 {
                     // 执行探测
-                    await ProbeStrmMediaStreams(item, cancellationToken).ConfigureAwait(false);
+                    var probedStreams = await _mediaInfoService.ProbeAndSaveMediaStreamsAsync(item, cancellationToken).ConfigureAwait(false);
+                    if (_config.EnableMediaInfoCache && probedStreams.Count > 0)
+                    {
+                        await _mediaCache.SaveCacheAsync(item.Path, probedStreams, cancellationToken).ConfigureAwait(false);
+                    }
                 }
 
-                var afterStreams = GetItemMediaStreams(item);
+                var afterStreams = _mediaInfoService.GetItemMediaStreams(item);
                 _logger.LogInformation(
                     "StrmTool - Auto-extract complete for {Name}. Streams {Before}→{After}",
                     fileName,
@@ -470,88 +301,6 @@ namespace StrmTool
             catch (Exception ex)
             {
                 _logger.LogError(ex, "StrmTool - Error in auto-extract for {Name}", fileName);
-            }
-        }
-
-        /// <summary>
-        /// 根据路径判断协议类型
-        /// </summary>
-        private MediaProtocol GetProtocolFromPath(string path)
-        {
-            if (path.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-                path.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-            {
-                return MediaProtocol.Http;
-            }
-            else if (path.StartsWith("rtmp://", StringComparison.OrdinalIgnoreCase))
-            {
-                return MediaProtocol.Rtmp;
-            }
-            else if (path.StartsWith("rtsp://", StringComparison.OrdinalIgnoreCase))
-            {
-                return MediaProtocol.Rtsp;
-            }
-            else if (path.StartsWith("ftp://", StringComparison.OrdinalIgnoreCase))
-            {
-                return MediaProtocol.Ftp;
-            }
-            else
-            {
-                // 本地路径
-                return MediaProtocol.File;
-            }
-        }
-
-        /// <summary>
-        /// 兼容的方法来获取媒体流，带反射结果缓存以减少每次调用的开销
-        /// </summary>
-        private static readonly ConcurrentDictionary<Type, Func<BaseItem, List<MediaStream>>> _mediaStreamResolvers
-            = new ConcurrentDictionary<Type, Func<BaseItem, List<MediaStream>>>();
-
-        private List<MediaStream> GetItemMediaStreams(BaseItem item)
-        {
-            try
-            {
-                var type = item.GetType();
-
-                var resolver = _mediaStreamResolvers.GetOrAdd(type, t =>
-                {
-                    // 尝试属性优先
-                    var prop = t.GetProperty("MediaStreams", BindingFlags.Public | BindingFlags.Instance);
-                    if (prop != null && typeof(IEnumerable<MediaStream>).IsAssignableFrom(prop.PropertyType))
-                    {
-                        return new Func<BaseItem, List<MediaStream>>(bi =>
-                        {
-                            var val = prop.GetValue(bi);
-                            if (val is List<MediaStream> list) return list;
-                            if (val is IEnumerable<MediaStream> enumv) return enumv.ToList();
-                            return new List<MediaStream>();
-                        });
-                    }
-
-                    // 尝试方法
-                    var method = t.GetMethod("GetMediaStreams", BindingFlags.Public | BindingFlags.Instance);
-                    if (method != null && typeof(IEnumerable<MediaStream>).IsAssignableFrom(method.ReturnType))
-                    {
-                        return new Func<BaseItem, List<MediaStream>>(bi =>
-                        {
-                            var res = method.Invoke(bi, null);
-                            if (res is List<MediaStream> list) return list;
-                            if (res is IEnumerable<MediaStream> enumv) return enumv.ToList();
-                            return new List<MediaStream>();
-                        });
-                    }
-
-                    // Fallback: empty
-                    return new Func<BaseItem, List<MediaStream>>(bi => new List<MediaStream>());
-                });
-
-                return resolver(item);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "StrmTool - Error getting media streams for {ItemType}", item.GetType().Name);
-                return new List<MediaStream>();
             }
         }
 

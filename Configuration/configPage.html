@@ -17,7 +17,7 @@
                     <input type="checkbox" id="chkEnableMediaInfoCache" />
                     <span id="lblEnableMediaInfoCache">Enable media info caching</span>
                 </label>
-                <div class="fieldDescription" id="descEnableMediaInfoCache">When enabled, extracted media info will be saved to xxx.json files to avoid repeated probing</div>
+                <div class="fieldDescription" id="descEnableMediaInfoCache">When enabled, extracted media info will be saved to xxx.strmtool.json files to avoid repeated probing</div>
             </div>
         </div>
         <br />
@@ -57,7 +57,7 @@
                 'StrmTool.LblEnableAutoExtract': 'Automatically extract media info for new strm files',
                 'StrmTool.DescEnableAutoExtract': 'When enabled, new strm files will automatically extract media info in the background without manual task execution',
                 'StrmTool.LblEnableMediaInfoCache': 'Enable media info caching',
-                'StrmTool.DescEnableMediaInfoCache': 'When enabled, extracted media info will be saved to xxx.json files to avoid repeated probing',
+                'StrmTool.DescEnableMediaInfoCache': 'When enabled, extracted media info will be saved to xxx.strmtool.json files to avoid repeated probing',
                 'StrmTool.LblRefreshDelay': 'Refresh delay (ms)',
                 'StrmTool.DescRefreshDelay': 'Milliseconds to wait after each media info refresh to avoid overwhelming remote servers',
                 'StrmTool.LblMaxConcurrentExtract': 'Maximum concurrent extractions',
@@ -71,7 +71,7 @@
                 'StrmTool.LblEnableAutoExtract': '自动提取新入库 strm 文件的媒体信息',
                 'StrmTool.DescEnableAutoExtract': '启用后，新增的 strm 文件会自动在后台执行媒体信息提取，无需手动运行计划任务',
                 'StrmTool.LblEnableMediaInfoCache': '启用媒体信息缓存',
-                'StrmTool.DescEnableMediaInfoCache': '启用后，提取的媒体信息会保存到 xxx.json 文件中，避免重复探测',
+                'StrmTool.DescEnableMediaInfoCache': '启用后，提取的媒体信息会保存到 xxx.strmtool.json 文件中，避免重复探测',
                 'StrmTool.LblRefreshDelay': '刷新延迟 (毫秒)',
                 'StrmTool.DescRefreshDelay': '每次刷新媒体信息后等待的毫秒数，用于避免对远程服务器造成压力',
                 'StrmTool.LblMaxConcurrentExtract': '最大并发提取数',
@@ -166,17 +166,19 @@
             ApiClient.getPluginConfiguration('6107fc8c-883a-4171-b70e-7590658706B9').then(function(config) {
                 document.getElementById('chkEnableAutoExtract').checked = config.EnableAutoExtract !== false;
                 document.getElementById('chkEnableMediaInfoCache').checked = config.EnableMediaInfoCache !== false;
-                document.getElementById('txtRefreshDelay').value = config.RefreshDelayMs || 1000;
-                document.getElementById('txtMaxConcurrentExtract').value = config.MaxConcurrentExtract || 5;
+                document.getElementById('txtRefreshDelay').value = config.RefreshDelayMs ?? 1000;
+                document.getElementById('txtMaxConcurrentExtract').value = config.MaxConcurrentExtract ?? 5;
             });
         }
 
         function saveConfig() {
+            const refreshDelayInput = parseInt(document.getElementById('txtRefreshDelay').value, 10);
+            const maxConcurrentInput = parseInt(document.getElementById('txtMaxConcurrentExtract').value, 10);
             var config = {
                 EnableAutoExtract: document.getElementById('chkEnableAutoExtract').checked,
                 EnableMediaInfoCache: document.getElementById('chkEnableMediaInfoCache').checked,
-                RefreshDelayMs: parseInt(document.getElementById('txtRefreshDelay').value) || 1000,
-                MaxConcurrentExtract: parseInt(document.getElementById('txtMaxConcurrentExtract').value) || 5
+                RefreshDelayMs: Number.isNaN(refreshDelayInput) ? 1000 : refreshDelayInput,
+                MaxConcurrentExtract: Number.isNaN(maxConcurrentInput) ? 5 : maxConcurrentInput
             };
 
             ApiClient.updatePluginConfiguration('6107fc8c-883a-4171-b70e-7590658706B9', config).then(function() {

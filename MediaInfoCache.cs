@@ -14,6 +14,7 @@ namespace StrmTool
     public class MediaInfoCache
     {
         private readonly ILogger _logger;
+        private const string CacheFileSuffix = ".strmtool.json";
         
         private static readonly JsonSerializerOptions JsonOptions = new()
         {
@@ -39,8 +40,22 @@ namespace StrmTool
             if (string.IsNullOrWhiteSpace(directory))
                 directory = Directory.GetCurrentDirectory();
                 
-            var fileName = Path.GetFileNameWithoutExtension(strmPath) + ".json";
+            var fileName = Path.GetFileNameWithoutExtension(strmPath) + CacheFileSuffix;
             return Path.Combine(directory, fileName);
+        }
+
+        /// <summary>
+        /// 检查缓存文件是否存在
+        /// </summary>
+        public bool HasCacheFile(string strmPath)
+        {
+            if (string.IsNullOrWhiteSpace(strmPath))
+            {
+                return false;
+            }
+
+            var cachePath = GetCachePath(strmPath);
+            return !string.IsNullOrWhiteSpace(cachePath) && File.Exists(cachePath);
         }
 
         /// <summary>
@@ -92,7 +107,7 @@ namespace StrmTool
         /// <summary>
         /// 保存缓存（原子写入，先写临时文件再重命名）
         /// </summary>
-        public async Task SaveCacheAsync(string strmPath, IEnumerable<MediaStream> mediaStreams, string sourceUrl, CancellationToken cancellationToken = default)
+        public async Task SaveCacheAsync(string strmPath, IEnumerable<MediaStream> mediaStreams, CancellationToken cancellationToken = default)
         {
             try
             {
@@ -114,7 +129,6 @@ namespace StrmTool
                     Version = "1.0",
                     Timestamp = DateTime.UtcNow,
                     MediaStreams = mediaStreams.ToList(),
-                    SourceUrl = sourceUrl,
                     IsValid = true
                 };
 
@@ -123,7 +137,14 @@ namespace StrmTool
                 // 原子写入：先写临时文件，成功后替换目标文件
                 var tempPath = cachePath + ".tmp";
                 await File.WriteAllTextAsync(tempPath, json, cancellationToken).ConfigureAwait(false);
-                File.Replace(tempPath, cachePath, null);
+                if (File.Exists(cachePath))
+                {
+                    File.Replace(tempPath, cachePath, null);
+                }
+                else
+                {
+                    File.Move(tempPath, cachePath);
+                }
 
                 _logger.LogDebug("StrmTool - Saved cache to {Path}", cachePath);
             }
@@ -176,16 +197,19 @@ namespace StrmTool
                 if (!Directory.Exists(directoryPath))
                     return;
 
-                var jsonFiles = Directory.GetFiles(directoryPath, "*.json", SearchOption.AllDirectories);
+                var jsonFiles = Directory.GetFiles(directoryPath, "*" + CacheFileSuffix, SearchOption.AllDirectories);
                 int cleared = 0;
 
                 foreach (var jsonFile in jsonFiles)
                 {
-                    // 检查是否是 strm 的缓存文件（对应的 strm 文件存在）
-                    var strmPath = Path.Combine(
-                        Path.GetDirectoryName(jsonFile),
-                        Path.GetFileNameWithoutExtension(jsonFile) + ".strm"
-                    );
+                    var fileName = Path.GetFileName(jsonFile);
+                    if (string.IsNullOrWhiteSpace(fileName) || !fileName.EndsWith(CacheFileSuffix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    var baseName = fileName.Substring(0, fileName.Length - CacheFileSuffix.Length);
+                    var strmPath = Path.Combine(Path.GetDirectoryName(jsonFile) ?? string.Empty, baseName + ".strm");
 
                     if (File.Exists(strmPath))
                     {
@@ -223,9 +247,6 @@ namespace StrmTool
 
         [JsonPropertyName("mediaStreams")]
         public List<MediaStream> MediaStreams { get; set; }
-
-        [JsonPropertyName("sourceUrl")]
-        public string SourceUrl { get; set; }
 
         [JsonPropertyName("isValid")]
         public bool IsValid { get; set; }
