@@ -33,7 +33,6 @@ namespace StrmTool
             = new ConcurrentDictionary<Type, Func<BaseItem, List<MediaStream>>>();
 
         private const int MaxResolverCacheSize = 100;
-        private static readonly object _resolverCacheLock = new object();
 
         public StrmMediaInfoService(
             ILibraryManager libraryManager,
@@ -177,16 +176,10 @@ namespace StrmTool
         {
             if (MediaStreamResolvers.Count >= MaxResolverCacheSize)
             {
-                lock (_resolverCacheLock)
+                var keysToRemove = MediaStreamResolvers.Keys.Take(MaxResolverCacheSize / 2).ToList();
+                foreach (var key in keysToRemove)
                 {
-                    if (MediaStreamResolvers.Count >= MaxResolverCacheSize)
-                    {
-                        var keysToRemove = MediaStreamResolvers.Keys.Take(MaxResolverCacheSize / 2).ToList();
-                        foreach (var key in keysToRemove)
-                        {
-                            MediaStreamResolvers.TryRemove(key, out _);
-                        }
-                    }
+                    MediaStreamResolvers.TryRemove(key, out _);
                 }
             }
         }

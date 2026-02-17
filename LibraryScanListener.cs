@@ -12,7 +12,7 @@ namespace StrmTool
         private readonly ILogger _logger;
         private readonly ILibraryManager _libraryManager;
         private PluginConfiguration _config;
-        private bool _isDisposed = false;
+        private volatile bool _isDisposed = false;
 
         // 使用事件解耦，而不是直接依赖 ExtractTask
         public event EventHandler<BaseItem> StrmFileDetected;
@@ -60,11 +60,15 @@ namespace StrmTool
                 // 检查是否是 strm 文件
                 if (item.Path?.EndsWith(".strm", StringComparison.OrdinalIgnoreCase) ?? false)
                 {
+                    // 再次检查是否已释放，防止竞态条件
+                    if (_isDisposed)
+                        return;
+                    
                     // 使用实际文件名而不是 item.Name，因为 item.Name 可能还没有完全解析
                     var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
                     _logger.LogInformation("StrmTool - New strm file detected: {Name} ({Path})", fileName, item.Path);
 
-                    // 触发事件通知，而不是直接调用 ExtractTask 方法
+                    // 新入库文件通过事件通知 ExtractTask 进行处理
                     StrmFileDetected?.Invoke(this, item);
                 }
             }

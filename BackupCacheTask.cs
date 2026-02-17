@@ -16,42 +16,19 @@ namespace StrmTool
     /// <summary>
     /// 备份媒体信息到缓存文件（不覆盖已有缓存）
     /// </summary>
-    public class BackupCacheTask : IScheduledTask, IDisposable
+    public class BackupCacheTask : StrmToolTaskBase
     {
-        private bool _disposed = false;
-        private readonly ILogger<BackupCacheTask> _logger;
-        private readonly StrmMediaInfoService _mediaInfoService;
-        private readonly MediaInfoCache _mediaCache;
-        private PluginConfiguration _config;
-        private SemaphoreSlim _semaphore;
-
         public BackupCacheTask(
             ILibraryManager libraryManager,
             IMediaEncoder mediaEncoder,
             IMediaStreamRepository mediaStreamRepository,
             ILogger<BackupCacheTask> logger)
+            : base(libraryManager, mediaEncoder, mediaStreamRepository, logger)
         {
-            _mediaInfoService = new StrmMediaInfoService(libraryManager, mediaEncoder, mediaStreamRepository, logger);
-            _logger = logger;
-            _mediaCache = new MediaInfoCache(logger);
-            
-            // 初始化配置
-            if (Plugin.Instance == null)
-            {
-                _logger.LogWarning("StrmTool - Plugin instance not found, using default configuration");
-                _config = new PluginConfiguration();
-            }
-            else
-            {
-                _config = Plugin.Instance.Configuration;
-            }
-            
-            _semaphore = new SemaphoreSlim(_config.MaxConcurrentExtract);
         }
 
-        public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
+        public override async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
         {
-            // 刷新配置以确保获取最新的设置
             RefreshConfig();
             _logger.LogInformation("StrmTool - Starting media info backup to cache files...");
 
@@ -65,74 +42,51 @@ namespace StrmTool
                 return;
             }
 
-            int processed = 0;
             int saved = 0;
             int skippedHasCache = 0;
             int skippedNoStreams = 0;
             int probedAttempted = 0;
             int probedSucceeded = 0;
 
-            var tasks = strmItems.Select(async item =>
+            await ProcessStrmItemsAsync(strmItems, async (item, ct) =>
             {
-                await _semaphore.WaitAsync(cancellationToken);
-                try
+                if (_mediaCache.HasCacheFile(item.Path))
                 {
-                    if (cancellationToken.IsCancellationRequested)
-                    {
-                        return;
-                    }
-
-                    if (_mediaCache.HasCacheFile(item.Path))
-                    {
-                        Interlocked.Increment(ref skippedHasCache);
-                        return;
-                    }
-
-                    var mediaStreams = _mediaInfoService.GetItemMediaStreams(item);
-                    var hasVideo = mediaStreams.Any(s => s.Type == MediaStreamType.Video);
-                    var hasAudio = mediaStreams.Any(s => s.Type == MediaStreamType.Audio);
-
-                    if (!(hasVideo || hasAudio))
-                    {
-                        Interlocked.Increment(ref probedAttempted);
-                        var probedStreams = await _mediaInfoService.ProbeAndSaveMediaStreamsAsync(item, cancellationToken).ConfigureAwait(false);
-                        if (probedStreams.Count > 0)
-                        {
-                            Interlocked.Increment(ref probedSucceeded);
-                            mediaStreams = probedStreams;
-                        }
-                        else
-                        {
-                            mediaStreams = _mediaInfoService.GetItemMediaStreams(item);
-                        }
-                    }
-
-                    await Task.Delay(_config.RefreshDelayMs, cancellationToken).ConfigureAwait(false);
-
-                    if (mediaStreams.Count == 0)
-                    {
-                        Interlocked.Increment(ref skippedNoStreams);
-                        return;
-                    }
-
-                    await _mediaCache.SaveCacheAsync(item.Path, mediaStreams, cancellationToken).ConfigureAwait(false);
-                    Interlocked.Increment(ref saved);
+                    Interlocked.Increment(ref skippedHasCache);
+                    return;
                 }
-                catch (Exception ex)
+
+                var mediaStreams = _mediaInfoService.GetItemMediaStreams(item);
+                var hasVideo = mediaStreams.Any(s => s.Type == MediaStreamType.Video);
+                var hasAudio = mediaStreams.Any(s => s.Type == MediaStreamType.Audio);
+
+                if (!(hasVideo || hasAudio))
                 {
-                    _logger.LogError(ex, "StrmTool - Error backing up cache for {Name} ({Path})", item.Name, item.Path);
+                    Interlocked.Increment(ref probedAttempted);
+                    var probedStreams = await _mediaInfoService.ProbeAndSaveMediaStreamsAsync(item, ct).ConfigureAwait(false);
+                    if (probedStreams.Count > 0)
+                    {
+                        Interlocked.Increment(ref probedSucceeded);
+                        mediaStreams = probedStreams;
+                    }
+                    else
+                    {
+                        mediaStreams = _mediaInfoService.GetItemMediaStreams(item);
+                    }
                 }
-                finally
+
+                await Task.Delay(_config.RefreshDelayMs, ct).ConfigureAwait(false);
+
+                if (mediaStreams.Count == 0)
                 {
-                    _semaphore.Release();
-                    int current = Interlocked.Increment(ref processed);
-                    progress.Report((double)current / total * 100);
+                    Interlocked.Increment(ref skippedNoStreams);
+                    return;
                 }
-            });
 
-            await Task.WhenAll(tasks);
+                await _mediaCache.SaveCacheAsync(item.Path, mediaStreams, ct).ConfigureAwait(false);
+                Interlocked.Increment(ref saved);
+            }, progress, cancellationToken);
 
-            progress.Report(100);
             _logger.LogInformation(
                 "StrmTool - Backup task complete. Total: {Total}, Saved: {Saved}, Skipped(HasCache): {HasCache}, Skipped(NoStreams): {NoStreams}",
                 total,
@@ -145,47 +99,11 @@ namespace StrmTool
                 probedSucceeded);
         }
 
-        /// <summary>
-        /// 刷新配置引用，确保获取最新的配置值
-        /// </summary>
-        private void RefreshConfig()
-        {
-            if (Plugin.Instance != null)
-            {
-                _config = Plugin.Instance.Configuration;
-            }
-        }
-
-        public string Category => "StrmTool";
-        public string Key => "StrmToolBackupCacheTask";
-        public string Description => Plugin.Instance?.GetLocalizedString("StrmTool.BackupTaskDescription")
+        public override string Category => "StrmTool";
+        public override string Key => "StrmToolBackupCacheTask";
+        public override string Description => Plugin.Instance?.GetLocalizedString("StrmTool.BackupTaskDescription")
             ?? "Backup existing media stream information from strm items to cache files";
-        public string Name => Plugin.Instance?.GetLocalizedString("StrmTool.BackupTaskName")
+        public override string Name => Plugin.Instance?.GetLocalizedString("StrmTool.BackupTaskName")
             ?? "Backup Strm Media Info Cache";
-
-        public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
-        {
-            return Array.Empty<TaskTriggerInfo>();
-        }
-
-        public void Dispose()
-        {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        protected virtual void Dispose(bool disposing)
-        {
-            if (_disposed)
-                return;
-
-            if (disposing)
-            {
-                _semaphore?.Dispose();
-                _semaphore = null;
-            }
-
-            _disposed = true;
-        }
     }
 }
