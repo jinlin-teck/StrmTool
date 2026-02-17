@@ -35,5 +35,15 @@ namespace StrmTool
             get => _maxConcurrentExtract;
             set => _maxConcurrentExtract = Math.Clamp(value, 1, 50);
         }
+
+        /// <summary>
+        /// 是否无视是否已有媒体流，强制刷新
+        /// </summary>
+        public bool ForceRefreshIgnoreExisting { get; set; } = false;
+
+        /// <summary>
+        /// 是否无视缓存文件，强制从远程服务器获取
+        /// </summary>
+        public bool ForceRefreshIgnoreCache { get; set; } = false;
     }
 }

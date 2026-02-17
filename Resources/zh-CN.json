@@ -28,5 +28,10 @@
   "StrmTool.SettingsSaved": "设置已保存",
   "StrmTool.LblMaxConcurrentExtract": "最大并发提取数",
   "StrmTool.DescMaxConcurrentExtract": "媒体信息提取任务的最大并发数",
+  "StrmTool.LblForceRefresh": "强制刷新选项",
+  "StrmTool.LblForceRefreshIgnoreExisting": "无视是否已有媒体流",
+  "StrmTool.DescForceRefreshIgnoreExisting": "启用后，无论是否已存在媒体信息都会执行刷新（仍可利用缓存）",
+  "StrmTool.LblForceRefreshIgnoreCache": "无视缓存",
+  "StrmTool.DescForceRefreshIgnoreCache": "启用后，直接从远程服务器获取信息，忽略缓存文件（仍会判断是否已有媒体信息）",
   "StrmTool.RestartWarning": "重要提示：所有设置的更改都需要重启 Jellyfin 服务器才能完全生效。"
 }

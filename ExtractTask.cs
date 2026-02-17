@@ -145,7 +145,7 @@ namespace StrmTool
                         bool hasVideo = mediaStreams.Any(s => s.Type == MediaStreamType.Video);
                         bool hasAudio = mediaStreams.Any(s => s.Type == MediaStreamType.Audio);
 
-                        if (!(hasVideo || hasAudio))
+                        if (_config.ForceRefreshIgnoreExisting || !(hasVideo || hasAudio))
                         {
                             strmItems.Add(item);
                         }
@@ -204,8 +204,8 @@ namespace StrmTool
                     var beforeStreams = _mediaInfoService.GetItemMediaStreams(item);
                     _logger.LogTrace("StrmTool - Before: {Count} streams", beforeStreams.Count);
 
-                    // 检查缓存
-                    if (_config.EnableMediaInfoCache && _mediaCache.TryGetCachedMediaStreams(item.Path, out var cachedStreams))
+                    // 检查缓存（如果不禁用缓存且不禁用缓存忽略）
+                    if (_config.EnableMediaInfoCache && !_config.ForceRefreshIgnoreCache && _mediaCache.TryGetCachedMediaStreams(item.Path, out var cachedStreams))
                     {
                         _mediaInfoService.SaveMediaStreams(item.Id, cachedStreams, cancellationToken);
                         _logger.LogInformation("StrmTool - {Name}: Used cached media info ({Count} streams)",
@@ -284,14 +284,14 @@ namespace StrmTool
                 bool hasVideo = beforeStreams.Any(s => s.Type == MediaStreamType.Video);
                 bool hasAudio = beforeStreams.Any(s => s.Type == MediaStreamType.Audio);
 
-                if (hasVideo || hasAudio)
+                if (!_config.ForceRefreshIgnoreExisting && (hasVideo || hasAudio))
                 {
                     _logger.LogInformation("StrmTool - {Name} already has media stream info, skipping", fileName);
                     return;
                 }
 
-                // 检查缓存
-                if (_config.EnableMediaInfoCache && _mediaCache.TryGetCachedMediaStreams(item.Path, out var cachedStreams))
+                // 检查缓存（如果不禁用缓存且不禁用缓存忽略）
+                if (_config.EnableMediaInfoCache && !_config.ForceRefreshIgnoreCache && _mediaCache.TryGetCachedMediaStreams(item.Path, out var cachedStreams))
                 {
                     _mediaInfoService.SaveMediaStreams(item.Id, cachedStreams, cancellationToken);
                     _logger.LogInformation("StrmTool - Auto-extract: {Name} using cached media info", fileName);

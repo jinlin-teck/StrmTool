@@ -38,6 +38,25 @@
             </div>
         </div>
         <br />
+        <div class="verticalSection">
+            <h4 id="lblForceRefresh" style="margin-bottom: 10px;">Force Refresh Options</h4>
+            <div class="checkboxContainer">
+                <label>
+                    <input type="checkbox" id="chkForceRefreshIgnoreExisting" />
+                    <span id="lblForceRefreshIgnoreExisting">Ignore existing media streams</span>
+                </label>
+                <div class="fieldDescription" id="descForceRefreshIgnoreExisting">When enabled, will always execute refresh regardless of whether media stream info already exists (cache can still be used)</div>
+            </div>
+            <br />
+            <div class="checkboxContainer">
+                <label>
+                    <input type="checkbox" id="chkForceRefreshIgnoreCache" />
+                    <span id="lblForceRefreshIgnoreCache">Ignore cache</span>
+                </label>
+                <div class="fieldDescription" id="descForceRefreshIgnoreCache">When enabled, will always fetch from remote server directly, ignoring cache files (will still check if media streams exist)</div>
+            </div>
+        </div>
+        <br />
         <button id="btnSave" data-role="button">Save</button>
         <br /><br />
         <div style="color: #ff6600; font-size: 12px;">
@@ -62,6 +81,11 @@
                 'StrmTool.DescRefreshDelay': 'Milliseconds to wait after each media info refresh to avoid overwhelming remote servers',
                 'StrmTool.LblMaxConcurrentExtract': 'Maximum concurrent extractions',
                 'StrmTool.DescMaxConcurrentExtract': 'Maximum number of concurrent media info extraction tasks',
+                'StrmTool.LblForceRefresh': 'Force Refresh Options',
+                'StrmTool.LblForceRefreshIgnoreExisting': 'Ignore existing media streams',
+                'StrmTool.DescForceRefreshIgnoreExisting': 'When enabled, will always execute refresh regardless of whether media stream info already exists (cache can still be used)',
+                'StrmTool.LblForceRefreshIgnoreCache': 'Ignore cache',
+                'StrmTool.DescForceRefreshIgnoreCache': 'When enabled, will always fetch from remote server directly, ignoring cache files (will still check if media streams exist)',
                 'StrmTool.BtnSave': 'Save',
                 'StrmTool.SettingsSaved': 'Settings saved successfully',
                 'StrmTool.RestartWarning': 'Important: All changes require a Jellyfin server restart to take full effect.'
@@ -76,6 +100,11 @@
                 'StrmTool.DescRefreshDelay': '每次刷新媒体信息后等待的毫秒数，用于避免对远程服务器造成压力',
                 'StrmTool.LblMaxConcurrentExtract': '最大并发提取数',
                 'StrmTool.DescMaxConcurrentExtract': '媒体信息提取任务的最大并发数',
+                'StrmTool.LblForceRefresh': '强制刷新选项',
+                'StrmTool.LblForceRefreshIgnoreExisting': '无视是否已有媒体流',
+                'StrmTool.DescForceRefreshIgnoreExisting': '启用后，无论是否已存在媒体信息都会执行刷新（仍可利用缓存）',
+                'StrmTool.LblForceRefreshIgnoreCache': '无视缓存',
+                'StrmTool.DescForceRefreshIgnoreCache': '启用后，直接从远程服务器获取信息，忽略缓存文件（仍会判断是否已有媒体信息）',
                 'StrmTool.BtnSave': '保存',
                 'StrmTool.SettingsSaved': '设置已保存',
                 'StrmTool.RestartWarning': '重要提示：所有设置的更改都需要重启 Jellyfin 服务器才能完全生效。'
@@ -156,6 +185,11 @@
             document.getElementById('descRefreshDelay').textContent = t('StrmTool.DescRefreshDelay');
             document.getElementById('lblMaxConcurrentExtract').textContent = t('StrmTool.LblMaxConcurrentExtract');
             document.getElementById('descMaxConcurrentExtract').textContent = t('StrmTool.DescMaxConcurrentExtract');
+            document.getElementById('lblForceRefresh').textContent = t('StrmTool.LblForceRefresh');
+            document.getElementById('lblForceRefreshIgnoreExisting').textContent = t('StrmTool.LblForceRefreshIgnoreExisting');
+            document.getElementById('descForceRefreshIgnoreExisting').textContent = t('StrmTool.DescForceRefreshIgnoreExisting');
+            document.getElementById('lblForceRefreshIgnoreCache').textContent = t('StrmTool.LblForceRefreshIgnoreCache');
+            document.getElementById('descForceRefreshIgnoreCache').textContent = t('StrmTool.DescForceRefreshIgnoreCache');
             document.getElementById('btnSave').textContent = t('StrmTool.BtnSave');
             document.getElementById('bottomWarning').textContent = t('StrmTool.RestartWarning');
         }
@@ -168,6 +202,8 @@
                 document.getElementById('chkEnableMediaInfoCache').checked = config.EnableMediaInfoCache !== false;
                 document.getElementById('txtRefreshDelay').value = config.RefreshDelayMs ?? 1000;
                 document.getElementById('txtMaxConcurrentExtract').value = config.MaxConcurrentExtract ?? 5;
+                document.getElementById('chkForceRefreshIgnoreExisting').checked = config.ForceRefreshIgnoreExisting === true;
+                document.getElementById('chkForceRefreshIgnoreCache').checked = config.ForceRefreshIgnoreCache === true;
             });
         }
 
@@ -178,7 +214,9 @@
                 EnableAutoExtract: document.getElementById('chkEnableAutoExtract').checked,
                 EnableMediaInfoCache: document.getElementById('chkEnableMediaInfoCache').checked,
                 RefreshDelayMs: Number.isNaN(refreshDelayInput) ? 1000 : refreshDelayInput,
-                MaxConcurrentExtract: Number.isNaN(maxConcurrentInput) ? 5 : maxConcurrentInput
+                MaxConcurrentExtract: Number.isNaN(maxConcurrentInput) ? 5 : maxConcurrentInput,
+                ForceRefreshIgnoreExisting: document.getElementById('chkForceRefreshIgnoreExisting').checked,
+                ForceRefreshIgnoreCache: document.getElementById('chkForceRefreshIgnoreCache').checked
             };
 
             ApiClient.updatePluginConfiguration('6107fc8c-883a-4171-b70e-7590658706B9', config).then(function() {
