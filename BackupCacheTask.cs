@@ -142,7 +142,7 @@ namespace StrmTool
                 probedSucceeded);
         }
 
-        public string Category => Plugin.Instance?.GetLocalizedString("StrmTool.TaskCategory") ?? "Strm Tool";
+        public string Category => "StrmTool";
         public string Key => "StrmToolBackupCacheTask";
         public string Description => Plugin.Instance?.GetLocalizedString("StrmTool.BackupTaskDescription")
             ?? "Backup existing media stream information from strm items to cache files";

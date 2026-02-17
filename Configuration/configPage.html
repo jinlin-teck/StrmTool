@@ -10,7 +10,6 @@
                 <div class="fieldDescription" id="descEnableAutoExtract">When enabled, new strm files will automatically extract media info in the background without manual task execution</div>
             </div>
         </div>
-        <br />
         <div class="verticalSection">
             <div class="checkboxContainer">
                 <label>
@@ -20,7 +19,6 @@
                 <div class="fieldDescription" id="descEnableMediaInfoCache">When enabled, extracted media info will be saved to xxx.strmtool.json files to avoid repeated probing</div>
             </div>
         </div>
-        <br />
 
         <div class="verticalSection">
             <div class="inputContainer">
@@ -29,7 +27,6 @@
                 <div class="fieldDescription" id="descRefreshDelay">Milliseconds to wait after each media info refresh to avoid overwhelming remote servers</div>
             </div>
         </div>
-        <br />
         <div class="verticalSection">
             <div class="inputContainer">
                 <label for="txtMaxConcurrentExtract" id="lblMaxConcurrentExtract">Maximum concurrent extractions</label>
@@ -37,24 +34,16 @@
                 <div class="fieldDescription" id="descMaxConcurrentExtract">Maximum number of concurrent media info extraction tasks</div>
             </div>
         </div>
-        <br />
-        <button id="btnSave" data-role="button">Save</button>
-        <br /><br />
-        <div style="color: #ff6600; font-size: 12px;">
-            <span id="bottomWarning">Important: All changes require a Jellyfin server restart to take full effect.</span>
-        </div>
-        <br />
         <div class="verticalSection">
             <h4 id="lblForceRefresh" style="margin-bottom: 10px;">Force Refresh Options</h4>
-            <div class="checkboxContainer">
+            <div class="checkboxContainer" style="margin-left: 40px;">
                 <label>
                     <input type="checkbox" id="chkForceRefreshIgnoreExisting" />
                     <span id="lblForceRefreshIgnoreExisting">Ignore existing media streams</span>
                 </label>
                 <div class="fieldDescription" id="descForceRefreshIgnoreExisting">When enabled, will always execute refresh regardless of whether media stream info already exists (cache can still be used)</div>
             </div>
-            <br />
-            <div class="checkboxContainer">
+            <div class="checkboxContainer" style="margin-left: 40px;">
                 <label>
                     <input type="checkbox" id="chkForceRefreshIgnoreCache" />
                     <span id="lblForceRefreshIgnoreCache">Ignore cache</span>
@@ -64,6 +53,10 @@
         </div>
         <br />
         <button id="btnSave" data-role="button">Save</button>
+        <br /><br />
+        <div style="color: #ff6600; font-size: 12px;">
+            <span id="bottomWarning">Important: All changes require a Jellyfin server restart to take full effect.</span>
+        </div>
     </div>
 
     <script>

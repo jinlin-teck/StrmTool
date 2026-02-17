@@ -63,7 +63,7 @@ namespace StrmTool
 
         public override string Name
         {
-            get { return _customLocalization.GetLocalizedString("StrmTool.PluginName"); }
+            get { return "StrmTool"; }
         }
 
         public override Guid Id
