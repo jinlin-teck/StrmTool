@@ -14,8 +14,15 @@ using MediaBrowser.Model.Entities;
 
 namespace StrmTool
 {
-    public class ExtractTask : StrmToolTaskBase, IDisposable
+    public class ExtractTask : IScheduledTask, IDisposable
     {
+        protected volatile bool _disposed = false;
+        protected readonly ILogger _logger;
+        protected readonly StrmMediaInfoService _mediaInfoService;
+        protected readonly MediaInfoCache _mediaCache;
+        protected PluginConfiguration _config;
+        protected SemaphoreSlim _semaphore;
+
         private readonly ILibraryManager _libraryManager;
         private LibraryScanListener _scanListener;
         private readonly CancellationTokenSource _backgroundTaskCts = new CancellationTokenSource();
@@ -26,11 +33,25 @@ namespace StrmTool
             IMediaEncoder mediaEncoder,
             IMediaStreamRepository mediaStreamRepository,
             ILogger<ExtractTask> logger)
-            : base(libraryManager, mediaEncoder, mediaStreamRepository, logger)
         {
+            _logger = logger;
+            _mediaInfoService = new StrmMediaInfoService(libraryManager, mediaEncoder, mediaStreamRepository, logger);
+            _mediaCache = new MediaInfoCache(logger);
+
+            if (Plugin.Instance == null)
+            {
+                _logger.LogWarning("StrmTool - Plugin instance not found, using default configuration");
+                _config = new PluginConfiguration();
+            }
+            else
+            {
+                _config = Plugin.Instance.Configuration;
+            }
+
+            _semaphore = new SemaphoreSlim(_config.MaxConcurrentExtract);
+
             _libraryManager = libraryManager;
 
-            // 始终初始化库监听器，通过配置控制是否处理事件
             try
             {
                 _scanListener = new LibraryScanListener(_libraryManager, _logger, _config);
@@ -42,9 +63,63 @@ namespace StrmTool
             }
         }
 
-        /// <summary>
-        /// 处理监听器触发的 strm 文件检测事件
-        /// </summary>
+        public string Category => "StrmTool";
+        public string Key => "StrmToolTask";
+        public string Description => Plugin.Instance?.GetLocalizedString("StrmTool.TaskDescription") ?? "Extract media technical information (codec, resolution, subtitles) from strm files";
+        public string Name => Plugin.Instance?.GetLocalizedString("StrmTool.TaskName") ?? "Extract Strm Media Info";
+
+        public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
+        {
+            return Array.Empty<TaskTriggerInfo>();
+        }
+
+        protected void RefreshConfig()
+        {
+            if (Plugin.Instance != null)
+            {
+                _config = Plugin.Instance.Configuration;
+            }
+        }
+
+        protected async Task<int> ProcessStrmItemsAsync(
+            List<BaseItem> items,
+            Func<BaseItem, CancellationToken, Task> processItemAsync,
+            IProgress<double> progress,
+            CancellationToken cancellationToken)
+        {
+            int processed = 0;
+            int total = items.Count;
+
+            var tasks = items.Select(async item =>
+            {
+                await _semaphore.WaitAsync(cancellationToken);
+                try
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    await processItemAsync(item, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "StrmTool - Error processing {Name} ({Path})", item.Name, item.Path);
+                }
+                finally
+                {
+                    _semaphore.Release();
+                    int current = Interlocked.Increment(ref processed);
+                    double percent = (double)current / total * 100;
+                    progress.Report(percent);
+                }
+            });
+
+            await Task.WhenAll(tasks);
+            progress.Report(100);
+            return processed;
+        }
+
         private void OnStrmFileDetected(object sender, BaseItem item)
         {
             if (_disposed)
@@ -84,9 +159,6 @@ namespace StrmTool
             }, _backgroundTaskCts.Token);
         }
 
-        /// <summary>
-        /// 清理监听器（在插件卸载时调用）
-        /// </summary>
         public void CleanupListener()
         {
             lock (_eventLock)
@@ -100,7 +172,7 @@ namespace StrmTool
             }
         }
 
-        public override async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
+        public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
         {
             RefreshConfig();
             _logger.LogInformation("StrmTool - Starting strm file scan...");
@@ -157,9 +229,6 @@ namespace StrmTool
             }
         }
 
-        /// <summary>
-        /// 处理 strm 文件
-        /// </summary>
         private async Task ProcessStrmFiles(List<BaseItem> strmItems, IProgress<double> progress, CancellationToken cancellationToken)
         {
             int processed = await ProcessStrmItemsAsync(strmItems, ProcessSingleItemAsync, progress, cancellationToken);
@@ -211,9 +280,6 @@ namespace StrmTool
             await Task.Delay(_config.RefreshDelayMs, cancellationToken);
         }
 
-        /// <summary>
-        /// 提取单个 strm 文件的媒体信息（用于自动提取）
-        /// </summary>
         public async Task ExtractSingleItemAsync(BaseItem item, CancellationToken cancellationToken)
         {
             RefreshConfig();
@@ -274,12 +340,13 @@ namespace StrmTool
             }
         }
 
-        public override string Category => "StrmTool";
-        public override string Key => "StrmToolTask";
-        public override string Description => Plugin.Instance?.GetLocalizedString("StrmTool.TaskDescription") ?? "Extract media technical information (codec, resolution, subtitles) from strm files";
-        public override string Name => Plugin.Instance?.GetLocalizedString("StrmTool.TaskName") ?? "Extract Strm Media Info";
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
 
-        protected override void Dispose(bool disposing)
+        protected virtual void Dispose(bool disposing)
         {
             if (_disposed)
                 return;
@@ -298,9 +365,9 @@ namespace StrmTool
 
                 CleanupListener();
                 _backgroundTaskCts.Dispose();
+                _semaphore?.Dispose();
+                _semaphore = null;
             }
-
-            base.Dispose(disposing);
         }
     }
 }

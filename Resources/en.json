@@ -2,8 +2,6 @@
   "StrmTool.PluginDescription": "Extracts technical media information (codec, resolution, subtitles) from strm files to enhance library display and playback performance.",
   "StrmTool.TaskName": "Extract Strm Media Info",
   "StrmTool.TaskDescription": "Extracts technical media information (codec, resolution, subtitles) from strm files.",
-  "StrmTool.BackupTaskName": "Backup Strm Media Info Cache",
-  "StrmTool.BackupTaskDescription": "Backs up media stream information from strm items to cache files, skips files with existing cache, and probes remote media when stream info is missing.",
   "StrmTool.PageTitle": "Strm Tool Settings",
   "StrmTool.LblEnableAutoExtract": "Automatically extract media info for new strm files",
   "StrmTool.DescEnableAutoExtract": "When enabled, new strm files will automatically extract media info in the background without manual task execution",
