@@ -29,6 +29,28 @@ namespace StrmTool
             _localizationManager = localizationManager;
             _logger = logger;
             _customLocalization = new LocalizationManager(logger, localizationManager, applicationPaths);
+            
+            // 打印插件配置
+            LogConfiguration();
+        }
+
+        private void LogConfiguration()
+        {
+            try
+            {
+                var config = Configuration;
+                _logger.LogInformation("StrmTool - Plugin configuration:");
+                _logger.LogInformation("StrmTool -   EnableAutoExtract: {Value}", config.EnableAutoExtract);
+                _logger.LogInformation("StrmTool -   EnableMediaInfoCache: {Value}", config.EnableMediaInfoCache);
+                _logger.LogInformation("StrmTool -   RefreshDelayMs: {Value}", config.RefreshDelayMs);
+                _logger.LogInformation("StrmTool -   MaxConcurrentExtract: {Value}", config.MaxConcurrentExtract);
+                _logger.LogInformation("StrmTool -   ForceRefreshIgnoreExisting: {Value}", config.ForceRefreshIgnoreExisting);
+                _logger.LogInformation("StrmTool -   ForceRefreshIgnoreCache: {Value}", config.ForceRefreshIgnoreCache);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "StrmTool - Failed to log configuration");
+            }
         }
 
         public override string Description

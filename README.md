@@ -47,7 +47,6 @@ Jellyfin 插件，用于从 strm 文件中提取媒体技术信息（codec、分
 - 请根据使用的 Jellyfin 版本选择对应版本的插件
 - v1.0.0.3 相比之前版本不会调用任何第三方元数据服务，已有的元数据（标题、描述、海报等）不会被修改
 - 媒体信息缓存文件格式为 `strm_filename.strmtool.json`，位于 strm 文件同目录
-- 配置变更后需要重启 Jellyfin 服务器才能完全生效
 
 ---
 
@@ -100,4 +99,3 @@ Click the "Settings" button on the plugin details page to adjust the following c
 - Please select the corresponding plugin version based on your Jellyfin version
 - v1.0.0.3 compared to previous versions will not call any third-party metadata services, existing metadata (title, description, posters, etc.) will not be modified
 - Media information cache file format is `strm_filename.strmtool.json`, located in the same directory as the strm file
-- Configuration changes require restarting the Jellyfin server to take full effect

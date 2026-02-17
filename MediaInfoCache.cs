@@ -59,7 +59,7 @@ namespace StrmTool
         }
 
         /// <summary>
-        /// 检查并读取缓存
+        /// 检查并读取缓存（同步版本，保持兼容性）
         /// </summary>
         public bool TryGetCachedMediaStreams(string strmPath, out List<MediaStream> mediaStreams)
         {
@@ -101,6 +101,49 @@ namespace StrmTool
             {
                 _logger.LogWarning(ex, "StrmTool - Error reading cache from {Path}", strmPath);
                 return false;
+            }
+        }
+
+        /// <summary>
+        /// 检查并读取缓存（异步版本）
+        /// </summary>
+        public async Task<(bool success, List<MediaStream> mediaStreams)> TryGetCachedMediaStreamsAsync(string strmPath, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(strmPath))
+            {
+                _logger.LogDebug("StrmTool - Invalid strm path for cache lookup");
+                return (false, null);
+            }
+
+            try
+            {
+                var cachePath = GetCachePath(strmPath);
+                if (string.IsNullOrWhiteSpace(cachePath))
+                {
+                    _logger.LogDebug("StrmTool - Failed to get cache path for: {Path}", strmPath);
+                    return (false, null);
+                }
+
+                if (!File.Exists(cachePath))
+                {
+                    return (false, null);
+                }
+
+                var json = await File.ReadAllTextAsync(cachePath, cancellationToken).ConfigureAwait(false);
+                var cache = JsonSerializer.Deserialize<MediaInfoCacheData>(json, JsonOptions);
+
+                if (cache?.IsValid != true || cache.MediaStreams == null)
+                {
+                    return (false, null);
+                }
+
+                _logger.LogDebug("StrmTool - Loaded cached media streams from {Path}", cachePath);
+                return (true, cache.MediaStreams);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "StrmTool - Error reading cache from {Path}", strmPath);
+                return (false, null);
             }
         }
 

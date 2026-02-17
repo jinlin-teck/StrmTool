@@ -11,7 +11,7 @@ namespace StrmTool
     {
         private readonly ILogger _logger;
         private readonly ILibraryManager _libraryManager;
-        private PluginConfiguration _config;
+        private readonly PluginConfiguration _config;
         private bool _isDisposed = false;
 
         // 使用事件解耦，而不是直接依赖 ExtractTask
@@ -35,12 +35,6 @@ namespace StrmTool
         {
             if (_isDisposed)
                 return;
-
-            // 从 Plugin.Instance 获取最新配置
-            if (Plugin.Instance != null)
-            {
-                _config = Plugin.Instance.Configuration;
-            }
 
             if (!_config.EnableAutoExtract)
                 return;

@@ -24,7 +24,6 @@ namespace StrmTool
         private LibraryScanListener _scanListener;
         private SemaphoreSlim _semaphore;
         private bool _disposed = false;
-        private readonly object _semaphoreLock = new object();
 
         public ExtractTask(
             ILibraryManager libraryManager,
@@ -47,44 +46,28 @@ namespace StrmTool
             }
             
             _mediaCache = new MediaInfoCache(_logger);
+            
+            // 初始化信号量
+            _semaphore = new SemaphoreSlim(_config.MaxConcurrentExtract);
 
-            // 初始化库监听器
-            if (_config.EnableAutoExtract)
+            // 始终初始化库监听器，通过配置控制是否处理事件
+            try
             {
-                try
-                {
-                    _scanListener = new LibraryScanListener(_libraryManager, _logger, _config);
-                    _scanListener.StrmFileDetected += OnStrmFileDetected;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "StrmTool - Failed to initialize library scan listener");
-                }
+                _scanListener = new LibraryScanListener(_libraryManager, _logger, _config);
+                _scanListener.StrmFileDetected += OnStrmFileDetected;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "StrmTool - Failed to initialize library scan listener");
             }
         }
 
-        private void EnsureSemaphore()
-        {
-            var targetCount = _config.MaxConcurrentExtract;
-            lock (_semaphoreLock)
-            {
-                if (_semaphore == null || _semaphore.CurrentCount != targetCount)
-                {
-                    _semaphore?.Dispose();
-                    _semaphore = new SemaphoreSlim(targetCount);
-                }
-            }
-        }
-        
         /// <summary>
         /// 处理监听器触发的 strm 文件检测事件
         /// </summary>
         private void OnStrmFileDetected(object sender, BaseItem item)
         {
             var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
-
-            RefreshConfig();
-            EnsureSemaphore();
 
             if (!_config.EnableAutoExtract)
             {
@@ -109,7 +92,7 @@ namespace StrmTool
                 {
                     _logger.LogError(ex, "StrmTool - Error in auto-extract background task for {Name}", fileName);
                 }
-            }).ConfigureAwait(false);
+            });
         }
 
         /// <summary>
@@ -183,8 +166,6 @@ namespace StrmTool
         /// </summary>
         private async Task ProcessStrmFiles(List<BaseItem> strmItems, IProgress<double> progress, CancellationToken cancellationToken)
         {
-            RefreshConfig();
-            EnsureSemaphore();
             
             int processed = 0;
             int total = strmItems.Count;
@@ -327,18 +308,6 @@ namespace StrmTool
             }
         }
 
-        private void RefreshConfig()
-        {
-            if (Plugin.Instance == null)
-            {
-                _logger.LogDebug("StrmTool - Plugin instance not available, using existing configuration");
-            }
-            else
-            {
-                _config = Plugin.Instance.Configuration;
-            }
-        }
-        
         public string Category => Plugin.Instance?.GetLocalizedString("StrmTool.TaskCategory") ?? "Strm Tool";
         public string Key => "StrmToolTask";
         public string Description => Plugin.Instance?.GetLocalizedString("StrmTool.TaskDescription") ?? "Extract media technical information (codec, resolution, subtitles) from strm files";

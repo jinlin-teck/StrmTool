@@ -33,37 +33,24 @@ namespace StrmTool
             _mediaInfoService = new StrmMediaInfoService(libraryManager, mediaEncoder, mediaStreamRepository, logger);
             _logger = logger;
             _mediaCache = new MediaInfoCache(logger);
-            _semaphore = new SemaphoreSlim(5);
-        }
-
-        private void RefreshConfig()
-        {
+            
+            // 初始化配置
             if (Plugin.Instance == null)
             {
+                _logger.LogWarning("StrmTool - Plugin instance not found, using default configuration");
                 _config = new PluginConfiguration();
             }
             else
             {
                 _config = Plugin.Instance.Configuration;
             }
-        }
-
-        private void EnsureSemaphore()
-        {
-            var targetCount = _config.MaxConcurrentExtract;
-            if (_semaphore?.CurrentCount != targetCount)
-            {
-                _semaphore?.Dispose();
-                _semaphore = new SemaphoreSlim(targetCount);
-            }
+            
+            _semaphore = new SemaphoreSlim(_config.MaxConcurrentExtract);
         }
 
         public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
         {
             _logger.LogInformation("StrmTool - Starting media info backup to cache files...");
-
-            RefreshConfig();
-            EnsureSemaphore();
 
             var strmItems = _mediaInfoService.GetAllStrmItems(cancellationToken);
 

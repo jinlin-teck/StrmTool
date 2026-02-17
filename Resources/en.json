@@ -28,10 +28,10 @@
   "StrmTool.SettingsSaved": "Settings saved successfully",
   "StrmTool.LblMaxConcurrentExtract": "Maximum concurrent extractions",
   "StrmTool.DescMaxConcurrentExtract": "Maximum number of concurrent media info extraction tasks",
+  "StrmTool.RestartWarning": "Important: All changes require a Jellyfin server restart to take full effect.",
   "StrmTool.LblForceRefresh": "Force Refresh Options",
   "StrmTool.LblForceRefreshIgnoreExisting": "Ignore existing media streams",
   "StrmTool.DescForceRefreshIgnoreExisting": "When enabled, will always execute refresh regardless of whether media stream info already exists (cache can still be used)",
   "StrmTool.LblForceRefreshIgnoreCache": "Ignore cache",
-  "StrmTool.DescForceRefreshIgnoreCache": "When enabled, will always fetch from remote server directly, ignoring cache files (will still check if media streams exist)",
-  "StrmTool.RestartWarning": "Important: All changes require a Jellyfin server restart to take full effect."
+  "StrmTool.DescForceRefreshIgnoreCache": "When enabled, will always fetch from remote server directly, ignoring cache files (will still check if media streams exist)"
 }
