@@ -16,8 +16,9 @@ namespace StrmTool
     /// <summary>
     /// 备份媒体信息到缓存文件（不覆盖已有缓存）
     /// </summary>
-    public class BackupCacheTask : IScheduledTask
+    public class BackupCacheTask : IScheduledTask, IDisposable
     {
+        private bool _disposed = false;
         private readonly ILogger<BackupCacheTask> _logger;
         private readonly StrmMediaInfoService _mediaInfoService;
         private readonly MediaInfoCache _mediaCache;
@@ -50,6 +51,8 @@ namespace StrmTool
 
         public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
         {
+            // 刷新配置以确保获取最新的设置
+            RefreshConfig();
             _logger.LogInformation("StrmTool - Starting media info backup to cache files...");
 
             var strmItems = _mediaInfoService.GetAllStrmItems(cancellationToken);
@@ -104,6 +107,8 @@ namespace StrmTool
                         }
                     }
 
+                    await Task.Delay(_config.RefreshDelayMs, cancellationToken).ConfigureAwait(false);
+
                     if (mediaStreams.Count == 0)
                     {
                         Interlocked.Increment(ref skippedNoStreams);
@@ -112,8 +117,6 @@ namespace StrmTool
 
                     await _mediaCache.SaveCacheAsync(item.Path, mediaStreams, cancellationToken).ConfigureAwait(false);
                     Interlocked.Increment(ref saved);
-
-                    await Task.Delay(_config.RefreshDelayMs, cancellationToken).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -142,6 +145,17 @@ namespace StrmTool
                 probedSucceeded);
         }
 
+        /// <summary>
+        /// 刷新配置引用，确保获取最新的配置值
+        /// </summary>
+        private void RefreshConfig()
+        {
+            if (Plugin.Instance != null)
+            {
+                _config = Plugin.Instance.Configuration;
+            }
+        }
+
         public string Category => "StrmTool";
         public string Key => "StrmToolBackupCacheTask";
         public string Description => Plugin.Instance?.GetLocalizedString("StrmTool.BackupTaskDescription")
@@ -152,6 +166,26 @@ namespace StrmTool
         public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
         {
             return Array.Empty<TaskTriggerInfo>();
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (_disposed)
+                return;
+
+            if (disposing)
+            {
+                _semaphore?.Dispose();
+                _semaphore = null;
+            }
+
+            _disposed = true;
         }
     }
 }

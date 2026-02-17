@@ -11,7 +11,7 @@ namespace StrmTool
     {
         private readonly ILogger _logger;
         private readonly ILibraryManager _libraryManager;
-        private readonly PluginConfiguration _config;
+        private PluginConfiguration _config;
         private bool _isDisposed = false;
 
         // 使用事件解耦，而不是直接依赖 ExtractTask
@@ -31,16 +31,30 @@ namespace StrmTool
             _logger.LogInformation("StrmTool - Library scan listener initialized");
         }
 
+        /// <summary>
+        /// 刷新配置引用，确保获取最新的配置值
+        /// </summary>
+        public void RefreshConfig()
+        {
+            if (Plugin.Instance != null)
+            {
+                _config = Plugin.Instance.Configuration;
+            }
+        }
+
         private void OnItemAdded(object sender, ItemChangeEventArgs e)
         {
             if (_isDisposed)
                 return;
 
-            if (!_config.EnableAutoExtract)
-                return;
-
             try
             {
+                // 刷新配置以确保获取最新的设置
+                RefreshConfig();
+
+                if (!_config.EnableAutoExtract)
+                    return;
+
                 var item = e.Item;
 
                 // 检查是否是 strm 文件
@@ -65,12 +79,16 @@ namespace StrmTool
             if (_isDisposed)
                 return;
 
-            if (_libraryManager != null)
+            _isDisposed = true;
+
+            try
             {
                 _libraryManager.ItemAdded -= OnItemAdded;
             }
+            catch (ObjectDisposedException)
+            {
+            }
 
-            _isDisposed = true;
             _logger.LogInformation("StrmTool - Library scan listener disposed");
         }
     }

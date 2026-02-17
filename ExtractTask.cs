@@ -65,8 +65,11 @@ namespace StrmTool
         /// <summary>
         /// 处理监听器触发的 strm 文件检测事件
         /// </summary>
-        private void OnStrmFileDetected(object sender, BaseItem item)
+        private async void OnStrmFileDetected(object sender, BaseItem item)
         {
+            // 刷新配置以确保获取最新的设置
+            RefreshConfig();
+
             var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
 
             if (!_config.EnableAutoExtract)
@@ -75,24 +78,20 @@ namespace StrmTool
                 return;
             }
 
-            _ = Task.Run(async () =>
+            try
             {
-                using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5)); // 5分钟超时
-                try
-                {
-                    // 延迟确保 Jellyfin 完成初始化
-                    await Task.Delay(_config.RefreshDelayMs, cts.Token).ConfigureAwait(false);
-                    await ExtractSingleItemAsync(item, cts.Token).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    _logger.LogWarning("StrmTool - Extraction cancelled for {Name}", fileName);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "StrmTool - Error in auto-extract background task for {Name}", fileName);
-                }
-            });
+                using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+                await Task.Delay(_config.RefreshDelayMs, cts.Token).ConfigureAwait(false);
+                await ExtractSingleItemAsync(item, cts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogWarning("StrmTool - Extraction cancelled for {Name}", fileName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "StrmTool - Error in auto-extract background task for {Name}", fileName);
+            }
         }
 
         /// <summary>
@@ -106,6 +105,8 @@ namespace StrmTool
 
         public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
         {
+            // 刷新配置以确保获取最新的设置
+            RefreshConfig();
             _logger.LogInformation("StrmTool - Starting strm file scan...");
 
             try
@@ -247,6 +248,8 @@ namespace StrmTool
         /// </summary>
         public async Task ExtractSingleItemAsync(BaseItem item, CancellationToken cancellationToken)
         {
+            // 刷新配置以确保获取最新的设置
+            RefreshConfig();
             // 使用实际文件名而不是 item.Name，因为 item.Name 可能还没有完全解析
             var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
             var lockTaken = false;
@@ -318,12 +321,23 @@ namespace StrmTool
             return Array.Empty<TaskTriggerInfo>();
         }
 
+        /// <summary>
+        /// 刷新配置引用，确保获取最新的配置值
+        /// </summary>
+        private void RefreshConfig()
+        {
+            if (Plugin.Instance != null)
+            {
+                _config = Plugin.Instance.Configuration;
+            }
+        }
+
         public void Dispose()
         {
             Dispose(true);
             GC.SuppressFinalize(this);
         }
-        
+
         protected virtual void Dispose(bool disposing)
         {
             if (_disposed)
@@ -337,12 +351,6 @@ namespace StrmTool
             }
 
             _disposed = true;
-        }
-        
-        // 注意：避免在析构器中处理托管资源，仅作为安全网
-        ~ExtractTask()
-        {
-            Dispose(false);
         }
     }
 }

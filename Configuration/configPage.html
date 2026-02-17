@@ -53,10 +53,6 @@
         </div>
         <br />
         <button id="btnSave" data-role="button">Save</button>
-        <br /><br />
-        <div style="color: #ff6600; font-size: 12px;">
-            <span id="bottomWarning">Important: All changes require a Jellyfin server restart to take full effect.</span>
-        </div>
     </div>
 
     <script>
@@ -74,7 +70,7 @@
                 'StrmTool.DescEnableMediaInfoCache': 'When enabled, extracted media info will be saved to xxx.strmtool.json files to avoid repeated probing',
                 'StrmTool.LblRefreshDelay': 'Refresh delay (ms)',
                 'StrmTool.DescRefreshDelay': 'Milliseconds to wait after each media info refresh to avoid overwhelming remote servers',
-                'StrmTool.LblMaxConcurrentExtract': 'Maximum concurrent extractions',
+                'StrmTool.LblMaxConcurrentExtract': 'Maximum concurrent extractions (restart required)',
                 'StrmTool.DescMaxConcurrentExtract': 'Maximum number of concurrent media info extraction tasks',
                 'StrmTool.LblForceRefresh': 'Force Refresh Options',
                 'StrmTool.LblForceRefreshIgnoreExisting': 'Ignore existing media streams',
@@ -82,8 +78,7 @@
                 'StrmTool.LblForceRefreshIgnoreCache': 'Ignore cache',
                 'StrmTool.DescForceRefreshIgnoreCache': 'When enabled, will always fetch from remote server directly, ignoring cache files (will still check if media streams exist)',
                 'StrmTool.BtnSave': 'Save',
-                'StrmTool.SettingsSaved': 'Settings saved successfully',
-                'StrmTool.RestartWarning': 'Important: All changes require a Jellyfin server restart to take full effect.'
+                'StrmTool.SettingsSaved': 'Settings saved successfully'
             },
             'zh': {
                 'StrmTool.PageTitle': 'Strm工具设置',
@@ -93,7 +88,7 @@
                 'StrmTool.DescEnableMediaInfoCache': '启用后，提取的媒体信息会保存到 xxx.strmtool.json 文件中，避免重复探测',
                 'StrmTool.LblRefreshDelay': '刷新延迟 (毫秒)',
                 'StrmTool.DescRefreshDelay': '每次刷新媒体信息后等待的毫秒数，用于避免对远程服务器造成压力',
-                'StrmTool.LblMaxConcurrentExtract': '最大并发提取数',
+                'StrmTool.LblMaxConcurrentExtract': '最大并发提取数（需重启生效）',
                 'StrmTool.DescMaxConcurrentExtract': '媒体信息提取任务的最大并发数',
                 'StrmTool.LblForceRefresh': '强制刷新选项',
                 'StrmTool.LblForceRefreshIgnoreExisting': '无视是否已有媒体流',
@@ -102,7 +97,7 @@
                 'StrmTool.DescForceRefreshIgnoreCache': '启用后，直接从远程服务器获取信息，忽略缓存文件（仍会判断是否已有媒体信息）',
                 'StrmTool.BtnSave': '保存',
                 'StrmTool.SettingsSaved': '设置已保存',
-                'StrmTool.RestartWarning': '重要提示：所有设置的更改都需要重启 Jellyfin 服务器才能完全生效。'
+
             }
         };
 
@@ -186,7 +181,6 @@
             document.getElementById('lblForceRefreshIgnoreCache').textContent = t('StrmTool.LblForceRefreshIgnoreCache');
             document.getElementById('descForceRefreshIgnoreCache').textContent = t('StrmTool.DescForceRefreshIgnoreCache');
             document.getElementById('btnSave').textContent = t('StrmTool.BtnSave');
-            document.getElementById('bottomWarning').textContent = t('StrmTool.RestartWarning');
         }
 
         var form = this;

@@ -2,7 +2,7 @@
 
 Jellyfin 插件，用于从 strm 文件中提取媒体技术信息（codec、分辨率、字幕），加速 strm 媒体文件的起播速度。
 
-🎉 **重磅** 祝贺！已完成项目初期设定的所有目标，功能已完全跟上emby分支，版本号更新到 v2.0.0.0！祝大家情人节快乐、预祝春节快乐！
+🎉 **v2.1.0 更新**：配置热更新支持！除最大并发数外，其他设置修改后立即生效，无需重启 Jellyfin。
 
 ## 核心功能
 
@@ -29,7 +29,10 @@ Jellyfin 插件，用于从 strm 文件中提取媒体技术信息（codec、分
 - **自动提取新入库 strm 文件**：启用后，新增的 strm 文件会自动在后台执行媒体信息提取（默认：启用）
 - **启用媒体信息缓存**：启用后，提取的媒体信息会保存为 xxx.strmtool.json 文件（与 strm 文件同目录），避免重复探测（默认：启用）
 - **刷新延迟（毫秒）**：每次刷新媒体信息后等待的毫秒数，用于避免对远程服务器造成压力（默认：1000ms）
-- **最大并发数**：媒体信息提取任务的最大并发数，范围: 1-50（默认：5）。合理设置可避免服务器过载。
+- **最大并发数（需重启生效）**：媒体信息提取任务的最大并发数，范围: 1-50（默认：5）。修改后需要重启 Jellyfin 才能生效。
+
+**注意**：除"最大并发数"外，其他配置修改后会立即生效（在下次任务执行时自动应用），无需重启 Jellyfin。
+
 - **强制刷新选项**：
   - **无视是否已有媒体流**：勾选后无论是否已有媒体信息都执行刷新（仍可利用缓存）
   - **无视缓存**：勾选后直接从远程服务器获取，忽略缓存文件（仍会判断是否已有媒体信息）
@@ -54,7 +57,7 @@ Jellyfin 插件，用于从 strm 文件中提取媒体技术信息（codec、分
 
 Jellyfin plugin for extracting media technical information (codec, resolution, subtitles) from strm files, accelerating the playback speed of strm media files.
 
-🎉 **Major Update** Congratulations! All initial project goals have been completed, functionality is fully aligned with the emby branch, version updated to v2.0.0.0! Happy Valentine's Day and early Spring Festival wishes!
+🎉 **v2.1.0 Update**: Hot configuration reload support! Except for maximum concurrency, all other settings take effect immediately after modification without restarting Jellyfin.
 
 ## Core Features
 
@@ -81,7 +84,10 @@ Click the "Settings" button on the plugin details page to adjust the following c
 - **Automatically Extract Newly Added Strm Files**: When enabled, newly added strm files will automatically perform media information extraction in the background (Default: Enabled)
 - **Enable Media Information Cache**: When enabled, extracted media information will be saved as xxx.strmtool.json files (in the same directory as the strm file) to avoid repeated probing (Default: Enabled)
 - **Refresh Delay (ms)**: Milliseconds to wait after each media information refresh, used to avoid putting pressure on remote servers (Default: 1000ms)
-- **Maximum Concurrency**: Maximum concurrency for media information extraction tasks, range: 1-50 (Default: 5). Reasonable settings can avoid server overload.
+- **Maximum Concurrency (restart required)**: Maximum concurrency for media information extraction tasks, range: 1-50 (Default: 5). Requires Jellyfin restart to take effect.
+
+**Note**: Except for "Maximum Concurrency", all other configuration changes take effect immediately (automatically applied on next task execution) without restarting Jellyfin.
+
 - **Force Refresh Options**:
   - **Ignore existing media streams**: When enabled, will always execute refresh regardless of whether media stream info already exists (cache can still be used)
   - **Ignore cache**: When enabled, will always fetch from remote server directly, ignoring cache files (will still check if media streams exist)
