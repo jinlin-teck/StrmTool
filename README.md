@@ -22,7 +22,7 @@ Jellyfin 插件，用于从 strm 文件中提取媒体技术信息（codec、分
 
 ## 使用方法
 
-### 自动提取
+### 插件功能设置
 
 在插件详情页点击"设置"按钮，可以调整以下配置项：
 
@@ -30,8 +30,11 @@ Jellyfin 插件，用于从 strm 文件中提取媒体技术信息（codec、分
 - **启用媒体信息缓存**：启用后，提取的媒体信息会保存为 xxx.strmtool.json 文件（与 strm 文件同目录），避免重复探测（默认：启用）
 - **刷新延迟（毫秒）**：每次刷新媒体信息后等待的毫秒数，用于避免对远程服务器造成压力（默认：1000ms）
 - **最大并发数**：媒体信息提取任务的最大并发数，范围: 1-50（默认：5）。合理设置可避免服务器过载。
+- **强制刷新选项**：
+  - **无视是否已有媒体流**：勾选后无论是否已有媒体信息都执行刷新（仍可利用缓存）
+  - **无视缓存**：勾选后直接从远程服务器获取，忽略缓存文件（仍会判断是否已有媒体信息）
 
-### 手动执行
+### 手动执行任务
 
 1. 进入 Jellyfin 后台 → 计划任务
 2. 找到 `Strm Tool` 分类下的以下任务：
@@ -43,8 +46,8 @@ Jellyfin 插件，用于从 strm 文件中提取媒体技术信息（codec、分
 
 - 请根据使用的 Jellyfin 版本选择对应版本的插件
 - v1.0.0.3 相比之前版本不会调用任何第三方元数据服务，已有的元数据（标题、描述、海报等）不会被修改
-- 配置变更后需要重启 Jellyfin 服务器才能完全生效
 - 媒体信息缓存文件格式为 `strm_filename.strmtool.json`，位于 strm 文件同目录
+- 配置变更后需要重启 Jellyfin 服务器才能完全生效
 
 ---
 
@@ -72,7 +75,7 @@ Compatible with Jellyfin 10.11.0+ (tested with latest 10.11.6, other versions pl
 
 ## Usage Instructions
 
-### Automatic Extraction
+### Plugin Function Settings
 
 Click the "Settings" button on the plugin details page to adjust the following configuration items:
 
@@ -80,8 +83,11 @@ Click the "Settings" button on the plugin details page to adjust the following c
 - **Enable Media Information Cache**: When enabled, extracted media information will be saved as xxx.strmtool.json files (in the same directory as the strm file) to avoid repeated probing (Default: Enabled)
 - **Refresh Delay (ms)**: Milliseconds to wait after each media information refresh, used to avoid putting pressure on remote servers (Default: 1000ms)
 - **Maximum Concurrency**: Maximum concurrency for media information extraction tasks, range: 1-50 (Default: 5). Reasonable settings can avoid server overload.
+- **Force Refresh Options**:
+  - **Ignore existing media streams**: When enabled, will always execute refresh regardless of whether media stream info already exists (cache can still be used)
+  - **Ignore cache**: When enabled, will always fetch from remote server directly, ignoring cache files (will still check if media streams exist)
 
-### Manual Execution
+### Manually Execute Tasks
 
 1. Go to Jellyfin backend → Scheduled Tasks
 2. Find the following tasks under the `Strm Tool` category:
@@ -93,5 +99,5 @@ Click the "Settings" button on the plugin details page to adjust the following c
 
 - Please select the corresponding plugin version based on your Jellyfin version
 - v1.0.0.3 compared to previous versions will not call any third-party metadata services, existing metadata (title, description, posters, etc.) will not be modified
-- Configuration changes require restarting the Jellyfin server to take full effect
 - Media information cache file format is `strm_filename.strmtool.json`, located in the same directory as the strm file
+- Configuration changes require restarting the Jellyfin server to take full effect
