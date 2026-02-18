@@ -2,6 +2,10 @@
 *.suo
 *.user
 *.sln.docstates
+.gitignore
+
+AGENTS.md
+VERSION_CHANGE.md
 
 [Dd]ebug/
 [Rr]elease/
