@@ -13,6 +13,7 @@ namespace StrmTool.Common
         private readonly string _operationName;
         private readonly string _itemName;
         private readonly Stopwatch _stopwatch;
+        private bool _disposed;
 
         public PerformanceMonitor(ILogger logger, string operationName, string itemName = "")
         {
@@ -27,13 +28,16 @@ namespace StrmTool.Common
         /// </summary>
         public void Stop()
         {
+            if (_disposed)
+                return;
+
             _stopwatch.Stop();
             var elapsed = _stopwatch.ElapsedMilliseconds;
             var message = string.IsNullOrEmpty(_itemName)
                 ? $"{_operationName} completed in {elapsed}ms"
                 : $"{_operationName} for {_itemName} completed in {elapsed}ms";
             
-            if (elapsed > 5000) // 超过5秒记为警告
+            if (elapsed > 5000)
             {
                 LogHelper.Warn(_logger, message);
             }
@@ -53,9 +57,13 @@ namespace StrmTool.Common
         /// </summary>
         public void Dispose()
         {
+            if (_disposed)
+                return;
+
+            _disposed = true;
             if (_stopwatch.IsRunning)
             {
-                Stop();
+                _stopwatch.Stop();
             }
         }
     }

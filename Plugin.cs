@@ -8,6 +8,7 @@ using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
 using StrmTool.Handlers;
+using StrmTool.Common;
 using System;
 using System.IO;
 
@@ -20,6 +21,7 @@ namespace StrmTool
 
         private ItemAddedEventHandler? _eventHandler;
         private ILibraryManager? _libraryManager;
+        public static IJsonSerializer? JsonSerializer { get; private set; }
 
         public Plugin(
             IApplicationPaths applicationPaths,
@@ -27,24 +29,27 @@ namespace StrmTool
             ILibraryManager libraryManager,
             ILogger logger,
             IFileSystem fileSystem,
-            IItemRepository itemRepository
+            IItemRepository itemRepository,
+            IJsonSerializer jsonSerializer
         ) : base(applicationPaths, xmlSerializer)
         {
             Instance = this;
+            JsonSerializer = jsonSerializer;
             _libraryManager = libraryManager;
-            RegisterEventHandlers(libraryManager, logger, fileSystem, itemRepository);
+            RegisterEventHandlers(libraryManager, logger, fileSystem, itemRepository, jsonSerializer);
         }
 
         private void RegisterEventHandlers(
             ILibraryManager libraryManager,
             ILogger logger,
             IFileSystem fileSystem,
-            IItemRepository itemRepository
+            IItemRepository itemRepository,
+            IJsonSerializer jsonSerializer
         )
         {
             try
             {
-                _eventHandler = new ItemAddedEventHandler(logger, libraryManager, fileSystem, itemRepository);
+                _eventHandler = new ItemAddedEventHandler(logger, libraryManager, fileSystem, itemRepository, jsonSerializer);
                 libraryManager.ItemAdded += _eventHandler.OnItemAdded;
 
                 logger.Info("StrmTool - Item added event handler registered at plugin level");
@@ -100,8 +105,7 @@ namespace StrmTool
 
         public override string Name => PluginName;
 
-        public override Guid Id =>
-            new Guid("a1b2c3d4-e5f6-7890-abcd-ef1234567891");
+        public override Guid Id => CommonConfiguration.PluginId;
     }
 
     public class PluginConfiguration : BasePluginConfiguration

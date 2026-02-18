@@ -3,6 +3,7 @@ using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Tasks;
+using MediaBrowser.Model.Serialization;
 using StrmTool.Common;
 using System;
 using System.Collections.Generic;
@@ -17,23 +18,28 @@ namespace StrmTool.Tasks
         private readonly ILibraryManager _libraryManager;
         private readonly IFileSystem _fileSystem;
         private readonly IItemRepository _itemRepository;
+        private readonly IJsonSerializer _jsonSerializer;
 
         public ExtractTask(ILibraryManager libraryManager, 
             ILogger logger, 
             IFileSystem fileSystem,
-            IItemRepository itemRepository)
+            IItemRepository itemRepository,
+            IJsonSerializer jsonSerializer)
         {
             _libraryManager = libraryManager;
             _logger = logger;
             _fileSystem = fileSystem;
             _itemRepository = itemRepository;
+            _jsonSerializer = jsonSerializer;
         }
 
         public async Task Execute(CancellationToken cancellationToken, IProgress<double> progress)
         {
             _logger.Info("StrmTool - Starting strm file scan...");
 
-            // 使用MediaInfoHelper的统一方法获取需要恢复的STRM文件
+            var mediaInfoManager = new MediaInfoManager(_logger, _libraryManager, _itemRepository, _jsonSerializer);
+            var processor = new StrmFileProcessor(_logger, _libraryManager, _fileSystem, _itemRepository, mediaInfoManager);
+
             var strmItems = MediaInfoHelper.GetStrmFilesNeedingRestore(_libraryManager);
             _logger.Info($"StrmTool - {strmItems.Count} strm files need metadata refresh");
 
@@ -43,9 +49,6 @@ namespace StrmTool.Tasks
                 _logger.Info("StrmTool - Nothing to process, task complete.");
                 return;
             }
-
-            // 创建处理器实例
-            var processor = new StrmFileProcessor(_logger, _libraryManager, _fileSystem, _itemRepository);
 
             int processed = 0;
             int total = strmItems.Count;

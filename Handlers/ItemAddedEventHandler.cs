@@ -2,17 +2,12 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.IO;
-using MediaBrowser.Controller.IO;
-using MediaBrowser.Controller.Providers;
-using MediaBrowser.Model.Configuration;
-using MediaBrowser.Model.Entities;
+using MediaBrowser.Controller.Persistence;
+using MediaBrowser.Model.Serialization;
 using StrmTool.Common;
 using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
-using MediaBrowser.Controller.Persistence;
 
 namespace StrmTool.Handlers
 {
@@ -22,75 +17,86 @@ namespace StrmTool.Handlers
         private readonly ILibraryManager _libraryManager;
         private readonly IFileSystem _fileSystem;
         private readonly IItemRepository _itemRepository;
+        private readonly MediaInfoManager _mediaInfoManager;
+        private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
 
-        public ItemAddedEventHandler(ILogger logger, ILibraryManager libraryManager, IFileSystem fileSystem, IItemRepository itemRepository)
+        public ItemAddedEventHandler(
+            ILogger logger,
+            ILibraryManager libraryManager,
+            IFileSystem fileSystem,
+            IItemRepository itemRepository,
+            IJsonSerializer jsonSerializer,
+            MediaInfoManager? mediaInfoManager = null)
         {
             _logger = logger;
             _libraryManager = libraryManager;
             _fileSystem = fileSystem;
             _itemRepository = itemRepository;
+            _mediaInfoManager = mediaInfoManager ?? new MediaInfoManager(logger, libraryManager, itemRepository, jsonSerializer);
         }
 
         public void OnItemAdded(object sender, ItemChangeEventArgs e)
         {
-            // 使用 _ = 防止 async void 的问题
-            _ = OnItemAddedAsync(e);
+            if (e.Item == null || string.IsNullOrEmpty(e.Item.Path) || 
+                !MediaInfoHelper.IsStrmFile(e.Item.Path))
+            {
+                return;
+            }
+
+            _logger.Info($"StrmTool - New strm file detected: {e.Item.Name}");
+
+            if (MediaInfoHelper.HasCompleteMediaInfo(e.Item))
+            {
+                _logger.Debug($"StrmTool - {e.Item.Name} already has complete media info, skipping");
+                return;
+            }
+
+            _logger.Debug($"StrmTool - Processing new strm file: {e.Item.Name}");
+
+            Task.Run(async () => await ProcessItemWithErrorHandlingAsync(e.Item));
         }
 
-        private async Task OnItemAddedAsync(ItemChangeEventArgs e)
+        private async Task ProcessItemWithErrorHandlingAsync(BaseItem item)
         {
+            await _semaphore.WaitAsync();
             try
             {
-                // 只处理strm文件
-                if (e.Item == null || string.IsNullOrEmpty(e.Item.Path) || 
-                    !MediaInfoHelper.IsStrmFile(e.Item.Path))
-                {
-                    return;
-                }
-
-                _logger.Info($"StrmTool - New strm file detected: {e.Item.Name}");
-
-                // 检查是否已经有完整的媒体信息
-                if (MediaInfoHelper.HasCompleteMediaInfo(e.Item))
-                {
-                    _logger.Debug($"StrmTool - {e.Item.Name} already has complete media info, skipping");
-                    return;
-                }
-
-                _logger.Debug($"StrmTool - Processing new strm file: {e.Item.Name}");
-
-                // 添加延迟，避免对远程服务器造成压力
-                await Task.Delay(CommonConfiguration.StandardProcessingDelayMs);
-
-                // 创建处理器实例
-                var processor = new StrmFileProcessor(_logger, _libraryManager, _fileSystem, _itemRepository);
-                
-                // 使用统一的处理器处理文件
-                var result = await processor.ProcessStrmFileAsync(e.Item);
-
-                // 根据处理结果记录日志
-                switch (result)
-                {
-                    case ProcessResult.Skipped:
-                        _logger.Debug($"StrmTool - {e.Item.Name} was skipped");
-                        break;
-                    case ProcessResult.RestoredFromJson:
-                        _logger.Info($"StrmTool - {e.Item.Name} successfully restored from JSON");
-                        break;
-                    case ProcessResult.ExtractedAndExported:
-                        _logger.Info($"StrmTool - {e.Item.Name} successfully extracted and exported");
-                        break;
-                    case ProcessResult.ExtractionFailed:
-                        _logger.Warn($"StrmTool - {e.Item.Name} extraction failed, will be processed by scheduled task");
-                        break;
-                    case ProcessResult.Failed:
-                        _logger.Error($"StrmTool - {e.Item.Name} processing failed");
-                        break;
-                }
+                await ProcessItemAsync(item);
             }
             catch (Exception ex)
             {
-                _logger.Error($"StrmTool - Error in item added event handler: {ex.Message}");
+                _logger.Error($"StrmTool - Error processing item {item.Name}: {ex.Message}");
+            }
+            finally
+            {
+                _semaphore.Release();
+            }
+        }
+
+        private async Task ProcessItemAsync(BaseItem item)
+        {
+            await Task.Delay(CommonConfiguration.StandardProcessingDelayMs);
+
+            var processor = new StrmFileProcessor(_logger, _libraryManager, _fileSystem, _itemRepository, _mediaInfoManager);
+            var result = await processor.ProcessStrmFileAsync(item);
+
+            switch (result)
+            {
+                case ProcessResult.Skipped:
+                    _logger.Debug($"StrmTool - {item.Name} was skipped");
+                    break;
+                case ProcessResult.RestoredFromJson:
+                    _logger.Info($"StrmTool - {item.Name} successfully restored from JSON");
+                    break;
+                case ProcessResult.ExtractedAndExported:
+                    _logger.Info($"StrmTool - {item.Name} successfully extracted and exported");
+                    break;
+                case ProcessResult.ExtractionFailed:
+                    _logger.Warn($"StrmTool - {item.Name} extraction failed, will be processed by scheduled task");
+                    break;
+                case ProcessResult.Failed:
+                    _logger.Error($"StrmTool - {item.Name} processing failed");
+                    break;
             }
         }
     }

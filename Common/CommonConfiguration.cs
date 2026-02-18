@@ -12,6 +12,11 @@ namespace StrmTool.Common
     public static class CommonConfiguration
     {
         /// <summary>
+        /// 插件 GUID
+        /// </summary>
+        public static readonly Guid PluginId = new Guid("a1b2c3d4-e5f6-7890-abcd-ef1234567891");
+
+        /// <summary>
         /// 创建标准的元数据刷新选项
         /// </summary>
         /// <param name="fileSystem">文件系统实例</param>

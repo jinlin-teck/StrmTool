@@ -15,9 +15,8 @@
     <EmbeddedResource Include="Images\thumb.png" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="mediabrowser.server.core" Version="4.9.1.90" />
+    <PackageReference Include="mediabrowser.server.core" Version="4.8.11.0" />
     <PackageReference Include="System.Memory" Version="4.6.0" />
-    <PackageReference Include="System.Text.Json" Version="8.0.5" />
     <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

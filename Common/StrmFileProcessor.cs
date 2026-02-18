@@ -3,6 +3,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.IO;
+using MediaBrowser.Model.Serialization;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -20,13 +21,18 @@ namespace StrmTool.Common
         private readonly IItemRepository _itemRepository;
         private readonly MediaInfoManager _mediaInfoManager;
 
-        public StrmFileProcessor(ILogger logger, ILibraryManager libraryManager, IFileSystem fileSystem, IItemRepository itemRepository)
+        public StrmFileProcessor(
+            ILogger logger,
+            ILibraryManager libraryManager,
+            IFileSystem fileSystem,
+            IItemRepository itemRepository,
+            MediaInfoManager? mediaInfoManager = null)
         {
             _logger = logger;
             _libraryManager = libraryManager;
             _fileSystem = fileSystem;
             _itemRepository = itemRepository;
-            _mediaInfoManager = new MediaInfoManager(logger, libraryManager, itemRepository);
+            _mediaInfoManager = mediaInfoManager ?? new MediaInfoManager(logger, libraryManager, itemRepository, Plugin.JsonSerializer!);
         }
 
         /// <summary>
@@ -54,29 +60,27 @@ namespace StrmTool.Common
             {
                 _logger.Debug($"StrmTool - Processing {item.Name}");
 
-                // 检查是否已经有完整的媒体信息
                 if (MediaInfoHelper.HasCompleteMediaInfo(item))
                 {
                     _logger.Info($"StrmTool - {item.Name} already has complete media info, skipping...");
+                    monitor.Stop();
                     return ProcessResult.Skipped;
                 }
 
-                // 先检查是否存在JSON文件
                 if (MediaInfoHelper.ShouldRestoreFromJson(item, _mediaInfoManager))
                 {
                     _logger.Debug($"StrmTool - Found JSON file for {item.Name}, attempting to restore from JSON...");
                     
-                    // 如果存在JSON文件，则直接从JSON文件恢复
                     await _mediaInfoManager.RestoreItemAsync(item);
                     
                     var (hasVideo, hasAudio) = CheckMediaStreams(item);
                     
                     _logger.Debug($"StrmTool - {item.Name}: Restored from JSON. Video:{hasVideo}, Audio:{hasAudio}");
+                    monitor.Stop();
                     return ProcessResult.RestoredFromJson;
                 }
                 else
                 {
-                    // 如果不存在JSON文件，则执行原有的元数据提取操作
                     _logger.Debug($"StrmTool - No JSON file found for {item.Name}, extracting metadata...");
                     
                     var beforeStreams = item.GetMediaStreams() ?? new System.Collections.Generic.List<MediaBrowser.Model.Entities.MediaStream>();
@@ -92,20 +96,22 @@ namespace StrmTool.Common
                     if (!hasVideo || !hasAudio)
                     {
                         _logger.Warn($"StrmTool - {item.Name} may still lack full media info");
+                        monitor.Stop();
                         return ProcessResult.ExtractionFailed;
                     }
                     else
                     {
-                        // 如果提取成功，则保存到JSON文件
                         try
                         {
                             await _mediaInfoManager.ExportItemAsync(item);
                             _logger.Debug($"StrmTool - {item.Name}: Media info exported to JSON file");
+                            monitor.Stop();
                             return ProcessResult.ExtractedAndExported;
                         }
                         catch (Exception ex)
                         {
                             _logger.Error($"StrmTool - Error exporting {item.Name} to JSON: {ex.Message}");
+                            monitor.Stop();
                             return ProcessResult.ExtractionFailed;
                         }
                     }
@@ -114,6 +120,7 @@ namespace StrmTool.Common
             catch (Exception ex)
             {
                 _logger.Error($"StrmTool - Error processing {item.Name} ({item.Path}): {ex.Message}");
+                monitor.Stop();
                 return ProcessResult.Failed;
             }
         }

@@ -5,8 +5,6 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Entities.TV;
@@ -18,6 +16,7 @@ using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.MediaInfo;
+using MediaBrowser.Model.Serialization;
 
 namespace StrmTool.Common
 {
@@ -29,12 +28,14 @@ namespace StrmTool.Common
         private readonly ILogger _logger;
         private readonly ILibraryManager _libraryManager;
         private readonly IItemRepository _itemRepository;
+        private readonly IJsonSerializer _jsonSerializer;
 
-        public MediaInfoManager(ILogger logger, ILibraryManager libraryManager, IItemRepository itemRepository)
+        public MediaInfoManager(ILogger logger, ILibraryManager libraryManager, IItemRepository itemRepository, IJsonSerializer jsonSerializer)
         {
             _logger = logger;
             _libraryManager = libraryManager;
             _itemRepository = itemRepository;
+            _jsonSerializer = jsonSerializer;
         }
 
         /// <summary>
@@ -149,7 +150,7 @@ namespace StrmTool.Common
 
                 string filePath = GetMediaInfoJsonPath(item);
 
-                var json = JsonSerializer.Serialize(mediaSourcesWithChapters, JsonHelper.GetExportOptions());
+                var json = _jsonSerializer.SerializeToString(mediaSourcesWithChapters);
                 File.WriteAllText(filePath, json);
 
                 _logger.Debug($"StrmTool exported {item.Name} → {filePath}");
@@ -239,7 +240,7 @@ namespace StrmTool.Common
                 }
 
                 var jsonContent = await File.ReadAllTextAsync(jsonFilePath);
-                var mediaSourcesWithChapters = JsonSerializer.Deserialize<List<MediaSourceWithChapters>>(jsonContent, JsonHelper.GetImportOptions());
+                var mediaSourcesWithChapters = _jsonSerializer.DeserializeFromString<List<MediaSourceWithChapters>>(jsonContent);
 
                 if (mediaSourcesWithChapters == null)
                 {
