@@ -28,6 +28,7 @@ namespace StrmTool
         private readonly ILibraryManager _libraryManager;
         private readonly IMediaEncoder _mediaEncoder;
         private readonly IMediaStreamRepository _mediaStreamRepository;
+        private readonly IItemRepository _itemRepository;
 
         private static readonly ConcurrentDictionary<Type, Func<BaseItem, List<MediaStream>>> MediaStreamResolvers
             = new ConcurrentDictionary<Type, Func<BaseItem, List<MediaStream>>>();
@@ -38,11 +39,13 @@ namespace StrmTool
             ILibraryManager libraryManager,
             IMediaEncoder mediaEncoder,
             IMediaStreamRepository mediaStreamRepository,
+            IItemRepository itemRepository,
             ILogger logger)
         {
             _libraryManager = libraryManager;
             _mediaEncoder = mediaEncoder;
             _mediaStreamRepository = mediaStreamRepository;
+            _itemRepository = itemRepository;
             _logger = logger;
         }
 
@@ -290,7 +293,26 @@ namespace StrmTool
                 if (mediaInfo?.MediaStreams != null && mediaInfo.MediaStreams.Count > 0)
                 {
                     _mediaStreamRepository.SaveMediaStreams(item.Id, mediaInfo.MediaStreams, cancellationToken);
-                    _logger.LogDebug("StrmTool - Successfully saved {Count} media streams for {Name}",
+                    
+                    item.Size = mediaInfo.Size.GetValueOrDefault();
+                    item.RunTimeTicks = mediaInfo.RunTimeTicks;
+                    item.Container = mediaInfo.Container;
+                    item.TotalBitrate = mediaInfo.Bitrate.GetValueOrDefault();
+
+                    var videoStream = mediaInfo.MediaStreams
+                        .Where(s => s.Type == MediaStreamType.Video && s.Width.HasValue && s.Height.HasValue)
+                        .OrderByDescending(s => (long)(s.Width ?? 0) * (s.Height ?? 0))
+                        .FirstOrDefault();
+
+                    if (videoStream != null)
+                    {
+                        item.Width = videoStream.Width ?? 0;
+                        item.Height = videoStream.Height ?? 0;
+                    }
+
+                    await SaveItemAsync(item, cancellationToken).ConfigureAwait(false);
+                    
+                    _logger.LogDebug("StrmTool - Successfully saved {Count} media streams and updated item properties for {Name}",
                         mediaInfo.MediaStreams.Count, fileName);
                     return mediaInfo.MediaStreams.ToList();
                 }
@@ -343,6 +365,19 @@ namespace StrmTool
             }
 
             return string.Empty;
+        }
+
+        private async Task SaveItemAsync(BaseItem item, CancellationToken cancellationToken)
+        {
+            try
+            {
+                await item.UpdateToRepositoryAsync(ItemUpdateType.MetadataImport, cancellationToken).ConfigureAwait(false);
+                _logger.LogDebug("StrmTool - Successfully saved item changes via UpdateToRepositoryAsync");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "StrmTool - Error saving item changes");
+            }
         }
     }
 }

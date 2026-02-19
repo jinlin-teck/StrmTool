@@ -32,10 +32,11 @@ namespace StrmTool
             ILibraryManager libraryManager,
             IMediaEncoder mediaEncoder,
             IMediaStreamRepository mediaStreamRepository,
+            IItemRepository itemRepository,
             ILogger<ExtractTask> logger)
         {
             _logger = logger;
-            _mediaInfoService = new StrmMediaInfoService(libraryManager, mediaEncoder, mediaStreamRepository, logger);
+            _mediaInfoService = new StrmMediaInfoService(libraryManager, mediaEncoder, mediaStreamRepository, itemRepository, logger);
             _mediaCache = new MediaInfoCache(logger);
 
             if (Plugin.Instance == null)
