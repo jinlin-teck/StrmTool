@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -17,6 +18,7 @@ namespace StrmTool
         private readonly ILibraryManager _libraryManager;
         private readonly IMediaStreamRepository _mediaStreamRepository;
         private readonly MediaInfoCache _mediaCache;
+        private readonly ConcurrentDictionary<Guid, byte> _restoringItems;
         private PluginConfiguration _config;
         private volatile bool _isDisposed = false;
 
@@ -30,6 +32,7 @@ namespace StrmTool
             _libraryManager = libraryManager;
             _mediaStreamRepository = mediaStreamRepository;
             _mediaCache = new MediaInfoCache(logger);
+            _restoringItems = new ConcurrentDictionary<Guid, byte>();
             _config = config;
 
             // 订阅Item更新事件
@@ -90,9 +93,18 @@ namespace StrmTool
                     return;
                 }
 
+                // 检查是否正在恢复中，防止竞态条件
+                if (_restoringItems.ContainsKey(item.Id))
+                {
+                    _logger.LogDebug("StrmTool - Item {Name} already being restored, skipping", fileName);
+                    return;
+                }
+
                 // 需要在后台线程执行恢复操作
                 _ = Task.Run(async () =>
                 {
+                    // 标记为正在恢复
+                    _restoringItems.TryAdd(item.Id, 0);
                     try
                     {
                         await RestoreItemMetadataAsync(item, cacheData, CancellationToken.None).ConfigureAwait(false);
@@ -100,6 +112,11 @@ namespace StrmTool
                     catch (Exception ex)
                     {
                         _logger.LogError(ex, "StrmTool - Error restoring metadata for {Name}", fileName);
+                    }
+                    finally
+                    {
+                        // 移除恢复标记
+                        _restoringItems.TryRemove(item.Id, out _);
                     }
                 });
             }

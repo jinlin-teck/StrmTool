@@ -2,7 +2,7 @@
 
 Jellyfin 插件，用于从 strm 文件中提取媒体技术信息（codec、分辨率、字幕），加速 strm 媒体文件的起播速度。
 
-🎉 **v2.1.0 更新**：配置热更新支持！除最大并发数外，其他设置修改后立即生效，无需重启 Jellyfin。
+🎉 **v2.2.0 更新**：新增 Size 保护机制！当 strm 文件的 Size 等元数据被意外重置时，自动从缓存恢复；同时优化了代码结构和错误处理。
 
 ## 核心功能
 
@@ -55,7 +55,7 @@ Jellyfin 插件，用于从 strm 文件中提取媒体技术信息（codec、分
 
 Jellyfin plugin for extracting media technical information (codec, resolution, subtitles) from strm files to accelerate playback startup speed.
 
-🎉 **v2.1.0 Update**: Hot configuration reload support! Except for maximum concurrency, all other settings take effect immediately after modification without restarting Jellyfin.
+🎉 **v2.2.0 Update**: New Size protection mechanism! Automatically restores from cache when metadata like Size of strm files is accidentally reset; also optimizes code structure and error handling.
 
 ## Core Features
 

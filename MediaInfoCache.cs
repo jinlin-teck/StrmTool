@@ -148,11 +148,55 @@ namespace StrmTool
         }
 
         /// <summary>
+        /// 原子写入文件的私有方法
+        /// </summary>
+        private async Task WriteFileAtomicallyAsync(string filePath, string content, CancellationToken cancellationToken)
+        {
+            string tempPath = null;
+            try
+            {
+                tempPath = filePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                await File.WriteAllTextAsync(tempPath, content, cancellationToken).ConfigureAwait(false);
+
+                if (File.Exists(filePath))
+                {
+                    File.Replace(tempPath, filePath, null);
+                }
+                else
+                {
+                    File.Move(tempPath, filePath);
+                }
+            }
+            catch
+            {
+                CleanupTempFile(tempPath);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 清理临时文件
+        /// </summary>
+        private void CleanupTempFile(string tempPath)
+        {
+            if (!string.IsNullOrWhiteSpace(tempPath) && File.Exists(tempPath))
+            {
+                try
+                {
+                    File.Delete(tempPath);
+                }
+                catch (Exception cleanupEx)
+                {
+                    _logger.LogWarning(cleanupEx, "StrmTool - Failed to cleanup temp cache file {Path}", tempPath);
+                }
+            }
+        }
+
+        /// <summary>
         /// 保存缓存（原子写入，先写临时文件再重命名）
         /// </summary>
         public async Task SaveCacheAsync(string strmPath, IEnumerable<MediaStream> mediaStreams, CancellationToken cancellationToken = default)
         {
-            string tempPath = null;
             try
             {
                 if (string.IsNullOrWhiteSpace(strmPath))
@@ -177,36 +221,13 @@ namespace StrmTool
                 };
 
                 var json = JsonSerializer.Serialize(cache, JsonOptions);
-
-                // 原子写入：先写临时文件，成功后替换目标文件
-                tempPath = cachePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
-                await File.WriteAllTextAsync(tempPath, json, cancellationToken).ConfigureAwait(false);
-                if (File.Exists(cachePath))
-                {
-                    File.Replace(tempPath, cachePath, null);
-                }
-                else
-                {
-                    File.Move(tempPath, cachePath);
-                }
+                await WriteFileAtomicallyAsync(cachePath, json, cancellationToken).ConfigureAwait(false);
 
                 _logger.LogDebug("StrmTool - Saved cache to {Path}", cachePath);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "StrmTool - Error saving cache to {Path}", strmPath);
-                if (!string.IsNullOrWhiteSpace(tempPath) && File.Exists(tempPath))
-                {
-                    try
-                    {
-                        File.Delete(tempPath);
-                    }
-                    catch (Exception cleanupEx)
-                    {
-                        _logger.LogDebug(cleanupEx, "StrmTool - Failed to cleanup temp cache file {Path}", tempPath);
-                    }
-                }
-                // 不抛出异常，缓存失败不应中断主流程
             }
         }
 
@@ -224,7 +245,6 @@ namespace StrmTool
             int height,
             CancellationToken cancellationToken = default)
         {
-            string tempPath = null;
             try
             {
                 if (string.IsNullOrWhiteSpace(strmPath))
@@ -255,35 +275,13 @@ namespace StrmTool
                 };
 
                 var json = JsonSerializer.Serialize(cache, JsonOptions);
-
-                // 原子写入
-                tempPath = cachePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
-                await File.WriteAllTextAsync(tempPath, json, cancellationToken).ConfigureAwait(false);
-                if (File.Exists(cachePath))
-                {
-                    File.Replace(tempPath, cachePath, null);
-                }
-                else
-                {
-                    File.Move(tempPath, cachePath);
-                }
+                await WriteFileAtomicallyAsync(cachePath, json, cancellationToken).ConfigureAwait(false);
 
                 _logger.LogDebug("StrmTool - Saved full cache (Size={Size}) to {Path}", size, cachePath);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "StrmTool - Error saving full cache to {Path}", strmPath);
-                if (!string.IsNullOrWhiteSpace(tempPath) && File.Exists(tempPath))
-                {
-                    try
-                    {
-                        File.Delete(tempPath);
-                    }
-                    catch (Exception cleanupEx)
-                    {
-                        _logger.LogDebug(cleanupEx, "StrmTool - Failed to cleanup temp cache file {Path}", tempPath);
-                    }
-                }
             }
         }
 

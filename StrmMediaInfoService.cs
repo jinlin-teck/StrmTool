@@ -334,16 +334,35 @@ namespace StrmTool
 
         private static string ReadStrmSourcePath(string strmFilePath)
         {
-            foreach (var line in File.ReadLines(strmFilePath))
+            try
             {
-                var sourcePath = line.Trim();
-                if (!string.IsNullOrWhiteSpace(sourcePath))
+                foreach (var line in File.ReadLines(strmFilePath))
                 {
-                    return sourcePath;
+                    var sourcePath = line.Trim();
+                    if (!string.IsNullOrWhiteSpace(sourcePath))
+                    {
+                        return sourcePath;
+                    }
                 }
-            }
 
-            return string.Empty;
+                return string.Empty;
+            }
+            catch (FileNotFoundException)
+            {
+                return string.Empty;
+            }
+            catch (DirectoryNotFoundException)
+            {
+                return string.Empty;
+            }
+            catch (IOException)
+            {
+                return string.Empty;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return string.Empty;
+            }
         }
 
         private async Task SaveItemAsync(BaseItem item, CancellationToken cancellationToken)
