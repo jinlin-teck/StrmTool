@@ -211,6 +211,129 @@ namespace StrmTool
         }
 
         /// <summary>
+        /// 保存完整媒体信息缓存（包含Size等元数据）
+        /// </summary>
+        public async Task SaveFullCacheAsync(
+            string strmPath,
+            IEnumerable<MediaStream> mediaStreams,
+            long size,
+            long? runTimeTicks,
+            string container,
+            int totalBitrate,
+            int width,
+            int height,
+            CancellationToken cancellationToken = default)
+        {
+            string tempPath = null;
+            try
+            {
+                if (string.IsNullOrWhiteSpace(strmPath))
+                {
+                    _logger.LogDebug("StrmTool - Invalid strm path for full cache save");
+                    return;
+                }
+
+                var cachePath = GetCachePath(strmPath);
+                if (string.IsNullOrWhiteSpace(cachePath))
+                {
+                    _logger.LogDebug("StrmTool - Failed to get cache path for: {Path}", strmPath);
+                    return;
+                }
+
+                var cache = new MediaInfoCacheData
+                {
+                    Version = "1.0",
+                    Timestamp = DateTime.UtcNow,
+                    MediaStreams = mediaStreams?.ToList() ?? new List<MediaStream>(),
+                    IsValid = true,
+                    Size = size,
+                    RunTimeTicks = runTimeTicks,
+                    Container = container,
+                    TotalBitrate = totalBitrate,
+                    Width = width,
+                    Height = height
+                };
+
+                var json = JsonSerializer.Serialize(cache, JsonOptions);
+
+                // 原子写入
+                tempPath = cachePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                await File.WriteAllTextAsync(tempPath, json, cancellationToken).ConfigureAwait(false);
+                if (File.Exists(cachePath))
+                {
+                    File.Replace(tempPath, cachePath, null);
+                }
+                else
+                {
+                    File.Move(tempPath, cachePath);
+                }
+
+                _logger.LogDebug("StrmTool - Saved full cache (Size={Size}) to {Path}", size, cachePath);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "StrmTool - Error saving full cache to {Path}", strmPath);
+                if (!string.IsNullOrWhiteSpace(tempPath) && File.Exists(tempPath))
+                {
+                    try
+                    {
+                        File.Delete(tempPath);
+                    }
+                    catch (Exception cleanupEx)
+                    {
+                        _logger.LogDebug(cleanupEx, "StrmTool - Failed to cleanup temp cache file {Path}", tempPath);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// 尝试读取完整缓存数据（包含元数据）
+        /// </summary>
+        public bool TryGetFullCache(string strmPath, out MediaInfoCacheData cacheData)
+        {
+            cacheData = null;
+
+            if (string.IsNullOrWhiteSpace(strmPath))
+            {
+                _logger.LogDebug("StrmTool - Invalid strm path for full cache lookup");
+                return false;
+            }
+
+            try
+            {
+                var cachePath = GetCachePath(strmPath);
+                if (string.IsNullOrWhiteSpace(cachePath))
+                {
+                    _logger.LogDebug("StrmTool - Failed to get cache path for: {Path}", strmPath);
+                    return false;
+                }
+
+                if (!File.Exists(cachePath))
+                {
+                    return false;
+                }
+
+                var json = File.ReadAllText(cachePath);
+                var cache = JsonSerializer.Deserialize<MediaInfoCacheData>(json, JsonOptions);
+
+                if (cache?.IsValid != true)
+                {
+                    return false;
+                }
+
+                cacheData = cache;
+                _logger.LogDebug("StrmTool - Loaded full cache (Size={Size}) from {Path}", cache.Size, cachePath);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "StrmTool - Error reading full cache from {Path}", strmPath);
+                return false;
+            }
+        }
+
+        /// <summary>
         /// 清除缓存
         /// </summary>
         public void ClearCache(string strmPath)
@@ -305,5 +428,23 @@ namespace StrmTool
 
         [JsonPropertyName("isValid")]
         public bool IsValid { get; set; }
+
+        [JsonPropertyName("size")]
+        public long Size { get; set; }
+
+        [JsonPropertyName("runTimeTicks")]
+        public long? RunTimeTicks { get; set; }
+
+        [JsonPropertyName("container")]
+        public string Container { get; set; }
+
+        [JsonPropertyName("totalBitrate")]
+        public int TotalBitrate { get; set; }
+
+        [JsonPropertyName("width")]
+        public int Width { get; set; }
+
+        [JsonPropertyName("height")]
+        public int Height { get; set; }
     }
 }

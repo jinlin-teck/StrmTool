@@ -24,7 +24,9 @@ namespace StrmTool
         protected SemaphoreSlim _semaphore;
 
         private readonly ILibraryManager _libraryManager;
+        private readonly IMediaStreamRepository _mediaStreamRepository;
         private LibraryScanListener _scanListener;
+        private ItemUpdateListener _updateListener;
         private readonly CancellationTokenSource _backgroundTaskCts = new CancellationTokenSource();
         private readonly object _eventLock = new object();
 
@@ -52,6 +54,7 @@ namespace StrmTool
             _semaphore = new SemaphoreSlim(_config.MaxConcurrentExtract);
 
             _libraryManager = libraryManager;
+            _mediaStreamRepository = mediaStreamRepository;
 
             try
             {
@@ -61,6 +64,15 @@ namespace StrmTool
             catch (Exception ex)
             {
                 _logger.LogError(ex, "StrmTool - Failed to initialize library scan listener");
+            }
+
+            try
+            {
+                _updateListener = new ItemUpdateListener(_libraryManager, mediaStreamRepository, _logger, _config);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "StrmTool - Failed to initialize item update listener");
             }
         }
 
@@ -170,6 +182,12 @@ namespace StrmTool
                     _scanListener.Dispose();
                     _scanListener = null;
                 }
+
+                if (_updateListener != null)
+                {
+                    _updateListener.Dispose();
+                    _updateListener = null;
+                }
             }
         }
 
@@ -253,10 +271,19 @@ namespace StrmTool
             }
             else
             {
-                var probedStreams = await _mediaInfoService.ProbeAndSaveMediaStreamsAsync(item, cancellationToken).ConfigureAwait(false);
-                if (_config.EnableMediaInfoCache && probedStreams.Count > 0)
+                var probeResult = await _mediaInfoService.ProbeMediaStreamsAsync(item, cancellationToken).ConfigureAwait(false);
+                if (_config.EnableMediaInfoCache && probeResult.Success)
                 {
-                    await _mediaCache.SaveCacheAsync(item.Path, probedStreams, cancellationToken).ConfigureAwait(false);
+                    await _mediaCache.SaveFullCacheAsync(
+                        item.Path,
+                        probeResult.MediaStreams,
+                        probeResult.Size,
+                        probeResult.RunTimeTicks,
+                        probeResult.Container,
+                        probeResult.TotalBitrate,
+                        probeResult.Width,
+                        probeResult.Height,
+                        cancellationToken).ConfigureAwait(false);
                 }
             }
 
@@ -313,10 +340,19 @@ namespace StrmTool
                 }
                 else
                 {
-                    var probedStreams = await _mediaInfoService.ProbeAndSaveMediaStreamsAsync(item, cancellationToken).ConfigureAwait(false);
-                    if (_config.EnableMediaInfoCache && probedStreams.Count > 0)
+                    var probeResult = await _mediaInfoService.ProbeMediaStreamsAsync(item, cancellationToken).ConfigureAwait(false);
+                    if (_config.EnableMediaInfoCache && probeResult.Success)
                     {
-                        await _mediaCache.SaveCacheAsync(item.Path, probedStreams, cancellationToken).ConfigureAwait(false);
+                        await _mediaCache.SaveFullCacheAsync(
+                            item.Path,
+                            probeResult.MediaStreams,
+                            probeResult.Size,
+                            probeResult.RunTimeTicks,
+                            probeResult.Container,
+                            probeResult.TotalBitrate,
+                            probeResult.Width,
+                            probeResult.Height,
+                            cancellationToken).ConfigureAwait(false);
                     }
                 }
 

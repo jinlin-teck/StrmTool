@@ -1,9 +1,7 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Data.Enums;
@@ -20,6 +18,21 @@ using MediaBrowser.Model.MediaInfo;
 namespace StrmTool
 {
     /// <summary>
+    /// 媒体探测结果，包含流信息和元数据
+    /// </summary>
+    public class MediaProbeResult
+    {
+        public List<MediaStream> MediaStreams { get; set; } = new List<MediaStream>();
+        public long Size { get; set; }
+        public long? RunTimeTicks { get; set; }
+        public string Container { get; set; }
+        public int TotalBitrate { get; set; }
+        public int Width { get; set; }
+        public int Height { get; set; }
+        public bool Success => MediaStreams != null && MediaStreams.Count > 0;
+    }
+
+    /// <summary>
     /// STRM 媒体流相关共享服务：扫描、读取媒体流、探测远程媒体并写入数据库。
     /// </summary>
     public class StrmMediaInfoService
@@ -29,11 +42,6 @@ namespace StrmTool
         private readonly IMediaEncoder _mediaEncoder;
         private readonly IMediaStreamRepository _mediaStreamRepository;
         private readonly IItemRepository _itemRepository;
-
-        private static readonly ConcurrentDictionary<Type, Func<BaseItem, List<MediaStream>>> MediaStreamResolvers
-            = new ConcurrentDictionary<Type, Func<BaseItem, List<MediaStream>>>();
-
-        private const int MaxResolverCacheSize = 100;
 
         public StrmMediaInfoService(
             ILibraryManager libraryManager,
@@ -166,25 +174,11 @@ namespace StrmTool
                 }
             }
 
-            CleanupResolverCacheIfNeeded();
-
             return strmItems
                 .Where(i => i != null && !string.IsNullOrWhiteSpace(i.Path))
                 .GroupBy(i => i.Path, StringComparer.OrdinalIgnoreCase)
                 .Select(g => g.First())
                 .ToList();
-        }
-
-        private static void CleanupResolverCacheIfNeeded()
-        {
-            if (MediaStreamResolvers.Count >= MaxResolverCacheSize)
-            {
-                var keysToRemove = MediaStreamResolvers.Keys.Take(MaxResolverCacheSize / 2).ToList();
-                foreach (var key in keysToRemove)
-                {
-                    MediaStreamResolvers.TryRemove(key, out _);
-                }
-            }
         }
 
         /// <summary>
@@ -196,54 +190,17 @@ namespace StrmTool
         {
             try
             {
-                var type = item.GetType();
-
-                var resolver = MediaStreamResolvers.GetOrAdd(type, t =>
+                // 使用 IHasMediaSources 接口获取媒体流，避免反射
+                if (item is IHasMediaSources hasMediaSources)
                 {
-                    var prop = t.GetProperty("MediaStreams", BindingFlags.Public | BindingFlags.Instance);
-                    if (prop != null && typeof(IEnumerable<MediaStream>).IsAssignableFrom(prop.PropertyType))
+                    var streams = hasMediaSources.GetMediaStreams();
+                    if (streams != null)
                     {
-                        return new Func<BaseItem, List<MediaStream>>(bi =>
-                        {
-                            var value = prop.GetValue(bi);
-                            if (value is List<MediaStream> list)
-                            {
-                                return list;
-                            }
-
-                            if (value is IEnumerable<MediaStream> enumerable)
-                            {
-                                return enumerable.ToList();
-                            }
-
-                            return new List<MediaStream>();
-                        });
+                        return streams.ToList();
                     }
+                }
 
-                    var method = t.GetMethod("GetMediaStreams", BindingFlags.Public | BindingFlags.Instance);
-                    if (method != null && typeof(IEnumerable<MediaStream>).IsAssignableFrom(method.ReturnType))
-                    {
-                        return new Func<BaseItem, List<MediaStream>>(bi =>
-                        {
-                            var result = method.Invoke(bi, null);
-                            if (result is List<MediaStream> list)
-                            {
-                                return list;
-                            }
-
-                            if (result is IEnumerable<MediaStream> enumerable)
-                            {
-                                return enumerable.ToList();
-                            }
-
-                            return new List<MediaStream>();
-                        });
-                    }
-
-                    return _ => new List<MediaStream>();
-                });
-
-                return resolver(item);
+                return new List<MediaStream>();
             }
             catch (Exception ex)
             {
@@ -265,7 +222,17 @@ namespace StrmTool
 
         public async Task<List<MediaStream>> ProbeAndSaveMediaStreamsAsync(BaseItem item, CancellationToken cancellationToken)
         {
+            var result = await ProbeMediaStreamsAsync(item, cancellationToken).ConfigureAwait(false);
+            return result.MediaStreams;
+        }
+
+        /// <summary>
+        /// 探测媒体流并返回完整结果（包含元数据）
+        /// </summary>
+        public async Task<MediaProbeResult> ProbeMediaStreamsAsync(BaseItem item, CancellationToken cancellationToken)
+        {
             var fileName = Path.GetFileNameWithoutExtension(item.Path);
+            var result = new MediaProbeResult();
 
             try
             {
@@ -273,7 +240,7 @@ namespace StrmTool
                 if (string.IsNullOrWhiteSpace(strmContent))
                 {
                     _logger.LogWarning("StrmTool - STRM file is empty: {Path}", item.Path);
-                    return new List<MediaStream>();
+                    return result;
                 }
 
                 var isAudio = item.MediaType == MediaType.Audio;
@@ -292,8 +259,7 @@ namespace StrmTool
 
                 if (mediaInfo?.MediaStreams != null && mediaInfo.MediaStreams.Count > 0)
                 {
-                    _mediaStreamRepository.SaveMediaStreams(item.Id, mediaInfo.MediaStreams, cancellationToken);
-                    
+                    // 先更新 item 属性，这些修改会随 UpdateToRepositoryAsync 一起持久化
                     item.Size = mediaInfo.Size.GetValueOrDefault();
                     item.RunTimeTicks = mediaInfo.RunTimeTicks;
                     item.Container = mediaInfo.Container;
@@ -310,20 +276,33 @@ namespace StrmTool
                         item.Height = videoStream.Height ?? 0;
                     }
 
+                    // 保存媒体流信息
+                    _mediaStreamRepository.SaveMediaStreams(item.Id, mediaInfo.MediaStreams, cancellationToken);
+
+                    // 同时持久化 item 属性修改
                     await SaveItemAsync(item, cancellationToken).ConfigureAwait(false);
-                    
+
+                    // 填充返回结果
+                    result.MediaStreams = mediaInfo.MediaStreams.ToList();
+                    result.Size = mediaInfo.Size.GetValueOrDefault();
+                    result.RunTimeTicks = mediaInfo.RunTimeTicks;
+                    result.Container = mediaInfo.Container;
+                    result.TotalBitrate = mediaInfo.Bitrate.GetValueOrDefault();
+                    result.Width = videoStream?.Width ?? 0;
+                    result.Height = videoStream?.Height ?? 0;
+
                     _logger.LogDebug("StrmTool - Successfully saved {Count} media streams and updated item properties for {Name}",
                         mediaInfo.MediaStreams.Count, fileName);
-                    return mediaInfo.MediaStreams.ToList();
+                    return result;
                 }
 
                 _logger.LogDebug("StrmTool - No media streams found for {Name}", fileName);
-                return new List<MediaStream>();
+                return result;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "StrmTool - Error probing STRM content for {Name}", fileName);
-                return new List<MediaStream>();
+                return result;
             }
         }
 
