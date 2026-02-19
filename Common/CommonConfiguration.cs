@@ -1,7 +1,3 @@
-using MediaBrowser.Controller.IO;
-using MediaBrowser.Controller.Providers;
-using MediaBrowser.Model.Configuration;
-using MediaBrowser.Model.IO;
 using System;
 
 namespace StrmTool.Common
@@ -16,25 +12,6 @@ namespace StrmTool.Common
         /// </summary>
         public static readonly Guid PluginId = new Guid("a1b2c3d4-e5f6-7890-abcd-ef1234567891");
 
-        /// <summary>
-        /// 创建标准的元数据刷新选项
-        /// </summary>
-        /// <param name="fileSystem">文件系统实例</param>
-        /// <returns>配置好的元数据刷新选项</returns>
-        public static MetadataRefreshOptions CreateStandardMetadataRefreshOptions(IFileSystem fileSystem)
-        {
-            var directoryService = new DirectoryService(fileSystem);
-            return new MetadataRefreshOptions(directoryService)
-            {
-                EnableRemoteContentProbe = true,
-                ReplaceAllMetadata = true,
-                MetadataRefreshMode = MetadataRefreshMode.ValidationOnly,
-                EnableThumbnailImageExtraction = false,
-                ImageRefreshMode = MetadataRefreshMode.ValidationOnly,
-                ReplaceAllImages = false
-            };
-        }
-        
         /// <summary>
         /// 标准处理延迟（毫秒）- 增加延迟避免对远程服务器造成压力
         /// </summary>

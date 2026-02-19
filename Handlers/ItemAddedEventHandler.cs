@@ -1,7 +1,7 @@
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Model.Logging;
-using MediaBrowser.Model.IO;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Serialization;
 using StrmTool.Common;
@@ -15,23 +15,23 @@ namespace StrmTool.Handlers
     {
         private readonly ILogger _logger;
         private readonly ILibraryManager _libraryManager;
-        private readonly IFileSystem _fileSystem;
         private readonly IItemRepository _itemRepository;
         private readonly MediaInfoManager _mediaInfoManager;
+        private readonly IMediaProbeManager _mediaProbeManager;
         private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
 
         public ItemAddedEventHandler(
             ILogger logger,
             ILibraryManager libraryManager,
-            IFileSystem fileSystem,
             IItemRepository itemRepository,
             IJsonSerializer jsonSerializer,
+            IMediaProbeManager mediaProbeManager,
             MediaInfoManager? mediaInfoManager = null)
         {
             _logger = logger;
             _libraryManager = libraryManager;
-            _fileSystem = fileSystem;
             _itemRepository = itemRepository;
+            _mediaProbeManager = mediaProbeManager;
             _mediaInfoManager = mediaInfoManager ?? new MediaInfoManager(logger, libraryManager, itemRepository, jsonSerializer);
         }
 
@@ -77,7 +77,7 @@ namespace StrmTool.Handlers
         {
             await Task.Delay(CommonConfiguration.StandardProcessingDelayMs);
 
-            var processor = new StrmFileProcessor(_logger, _libraryManager, _fileSystem, _itemRepository, _mediaInfoManager);
+            var processor = new StrmFileProcessor(_logger, _libraryManager, _itemRepository, _mediaProbeManager, _mediaInfoManager);
             var result = await processor.ProcessStrmFileAsync(item);
 
             switch (result)

@@ -1,8 +1,8 @@
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Logging;
-using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Serialization;
 using System;
 using System.Linq;
@@ -17,22 +17,22 @@ namespace StrmTool.Common
     {
         private readonly ILogger _logger;
         private readonly ILibraryManager _libraryManager;
-        private readonly IFileSystem _fileSystem;
         private readonly IItemRepository _itemRepository;
         private readonly MediaInfoManager _mediaInfoManager;
+        private readonly StrmMediaInfoService _mediaInfoService;
 
         public StrmFileProcessor(
             ILogger logger,
             ILibraryManager libraryManager,
-            IFileSystem fileSystem,
             IItemRepository itemRepository,
+            IMediaProbeManager mediaProbeManager,
             MediaInfoManager? mediaInfoManager = null)
         {
             _logger = logger;
             _libraryManager = libraryManager;
-            _fileSystem = fileSystem;
             _itemRepository = itemRepository;
             _mediaInfoManager = mediaInfoManager ?? new MediaInfoManager(logger, libraryManager, itemRepository, Plugin.JsonSerializer!);
+            _mediaInfoService = new StrmMediaInfoService(logger, libraryManager, mediaProbeManager, itemRepository);
         }
 
         /// <summary>
@@ -81,17 +81,16 @@ namespace StrmTool.Common
                 }
                 else
                 {
-                    _logger.Debug($"StrmTool - No JSON file found for {item.Name}, extracting metadata...");
+                    _logger.Debug($"StrmTool - No JSON file found for {item.Name}, probing media info...");
                     
                     var beforeStreams = item.GetMediaStreams() ?? new System.Collections.Generic.List<MediaBrowser.Model.Entities.MediaStream>();
                     _logger.Debug($"StrmTool - Before: {beforeStreams.Count} streams");
 
-                    var options = CommonConfiguration.CreateStandardMetadataRefreshOptions(_fileSystem);
-                    var result = await item.RefreshMetadata(options, cancellationToken);
-
+                    var streams = await _mediaInfoService.ProbeAndSaveMediaStreamsAsync(item, cancellationToken);
+                    
                     var (hasVideo, hasAudio) = CheckMediaStreams(item);
 
-                    _logger.Info($"StrmTool - {item.Name}: Extracted metadata. Streams {beforeStreams.Count}→{item.GetMediaStreams()?.Count ?? 0}. Video:{hasVideo}, Audio:{hasAudio}");
+                    _logger.Info($"StrmTool - {item.Name}: Probed media info. Streams {beforeStreams.Count}→{streams.Count}. Video:{hasVideo}, Audio:{hasAudio}");
 
                     if (!hasVideo || !hasAudio)
                     {

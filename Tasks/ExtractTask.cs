@@ -1,6 +1,6 @@
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Persistence;
-using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Tasks;
 using MediaBrowser.Model.Serialization;
@@ -16,21 +16,21 @@ namespace StrmTool.Tasks
     {
         private readonly ILogger _logger;
         private readonly ILibraryManager _libraryManager;
-        private readonly IFileSystem _fileSystem;
         private readonly IItemRepository _itemRepository;
         private readonly IJsonSerializer _jsonSerializer;
+        private readonly IMediaProbeManager _mediaProbeManager;
 
         public ExtractTask(ILibraryManager libraryManager, 
             ILogger logger, 
-            IFileSystem fileSystem,
             IItemRepository itemRepository,
-            IJsonSerializer jsonSerializer)
+            IJsonSerializer jsonSerializer,
+            IMediaProbeManager mediaProbeManager)
         {
             _libraryManager = libraryManager;
             _logger = logger;
-            _fileSystem = fileSystem;
             _itemRepository = itemRepository;
             _jsonSerializer = jsonSerializer;
+            _mediaProbeManager = mediaProbeManager;
         }
 
         public async Task Execute(CancellationToken cancellationToken, IProgress<double> progress)
@@ -38,10 +38,10 @@ namespace StrmTool.Tasks
             _logger.Info("StrmTool - Starting strm file scan...");
 
             var mediaInfoManager = new MediaInfoManager(_logger, _libraryManager, _itemRepository, _jsonSerializer);
-            var processor = new StrmFileProcessor(_logger, _libraryManager, _fileSystem, _itemRepository, mediaInfoManager);
+            var processor = new StrmFileProcessor(_logger, _libraryManager, _itemRepository, _mediaProbeManager, mediaInfoManager);
 
             var strmItems = MediaInfoHelper.GetStrmFilesNeedingRestore(_libraryManager);
-            _logger.Info($"StrmTool - {strmItems.Count} strm files need metadata refresh");
+            _logger.Info($"StrmTool - {strmItems.Count} strm files need media probing");
 
             if (strmItems.Count == 0)
             {
@@ -53,7 +53,6 @@ namespace StrmTool.Tasks
             int processed = 0;
             int total = strmItems.Count;
 
-            // 顺序处理，避免触发远程服务器风控
             foreach (var item in strmItems)
             {
                 if (cancellationToken.IsCancellationRequested)
@@ -62,13 +61,11 @@ namespace StrmTool.Tasks
                     break;
                 }
 
-                // 使用统一的处理器处理文件
                 await processor.ProcessStrmFileAsync(item, cancellationToken);
 
                 processed++;
                 progress.Report((double)processed / total * 100);
 
-                // 添加延迟，避免对远程服务器造成压力
                 if (processed < total)
                 {
                     await Task.Delay(CommonConfiguration.StandardProcessingDelayMs, cancellationToken);

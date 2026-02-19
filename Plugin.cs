@@ -1,9 +1,9 @@
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Drawing;
-using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
@@ -28,28 +28,27 @@ namespace StrmTool
             IXmlSerializer xmlSerializer,
             ILibraryManager libraryManager,
             ILogger logger,
-            IFileSystem fileSystem,
             IItemRepository itemRepository,
-            IJsonSerializer jsonSerializer
+            IJsonSerializer jsonSerializer,
+            IMediaProbeManager mediaProbeManager
         ) : base(applicationPaths, xmlSerializer)
         {
             Instance = this;
             JsonSerializer = jsonSerializer;
             _libraryManager = libraryManager;
-            RegisterEventHandlers(libraryManager, logger, fileSystem, itemRepository, jsonSerializer);
+            RegisterEventHandlers(libraryManager, logger, itemRepository, jsonSerializer, mediaProbeManager);
         }
 
         private void RegisterEventHandlers(
             ILibraryManager libraryManager,
             ILogger logger,
-            IFileSystem fileSystem,
             IItemRepository itemRepository,
-            IJsonSerializer jsonSerializer
-        )
+            IJsonSerializer jsonSerializer,
+            IMediaProbeManager mediaProbeManager)
         {
             try
             {
-                _eventHandler = new ItemAddedEventHandler(logger, libraryManager, fileSystem, itemRepository, jsonSerializer);
+                _eventHandler = new ItemAddedEventHandler(logger, libraryManager, itemRepository, jsonSerializer, mediaProbeManager);
                 libraryManager.ItemAdded += _eventHandler.OnItemAdded;
 
                 logger.Info("StrmTool - Item added event handler registered at plugin level");
