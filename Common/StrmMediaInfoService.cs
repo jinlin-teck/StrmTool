@@ -65,7 +65,27 @@ namespace StrmTool.Common
                 if (mediaInfo?.MediaStreams != null && mediaInfo.MediaStreams.Count > 0)
                 {
                     _itemRepository.SaveMediaStreams(item.InternalId, mediaInfo.MediaStreams, cancellationToken);
-                    _logger.Debug($"StrmTool - Successfully saved {mediaInfo.MediaStreams.Count} media streams for {fileName}");
+                    
+                    item.Size = mediaInfo.Size.GetValueOrDefault();
+                    item.RunTimeTicks = mediaInfo.RunTimeTicks;
+                    item.Container = mediaInfo.Container;
+                    item.TotalBitrate = mediaInfo.Bitrate.GetValueOrDefault();
+
+                    var videoStream = mediaInfo.MediaStreams
+                        .Where(s => s.Type == MediaStreamType.Video && s.Width.HasValue && s.Height.HasValue)
+                        .OrderByDescending(s => (long)(s.Width ?? 0) * (s.Height ?? 0))
+                        .FirstOrDefault();
+
+                    if (videoStream != null)
+                    {
+                        item.Width = videoStream.Width ?? 0;
+                        item.Height = videoStream.Height ?? 0;
+                    }
+
+                    _libraryManager.UpdateItems(new List<BaseItem> { item }, null,
+                        ItemUpdateType.MetadataImport, false, false, null, cancellationToken);
+                    
+                    _logger.Debug($"StrmTool - Successfully saved {mediaInfo.MediaStreams.Count} media streams and updated item properties for {fileName}");
                     return mediaInfo.MediaStreams.ToList();
                 }
 
