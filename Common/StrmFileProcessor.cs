@@ -1,12 +1,13 @@
+using System;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Serialization;
-using System;
-using System.Linq;
-using System.Threading.Tasks;
 
 namespace StrmTool.Common
 {
@@ -26,36 +27,25 @@ namespace StrmTool.Common
             ILibraryManager libraryManager,
             IItemRepository itemRepository,
             IMediaProbeManager mediaProbeManager,
+            IJsonSerializer jsonSerializer,
             MediaInfoManager? mediaInfoManager = null)
         {
-            _logger = logger;
-            _libraryManager = libraryManager;
-            _itemRepository = itemRepository;
-            _mediaInfoManager = mediaInfoManager ?? new MediaInfoManager(logger, libraryManager, itemRepository, Plugin.JsonSerializer!);
-            _mediaInfoService = new StrmMediaInfoService(logger, libraryManager, mediaProbeManager, itemRepository);
-        }
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _libraryManager = libraryManager ?? throw new ArgumentNullException(nameof(libraryManager));
+            _itemRepository = itemRepository ?? throw new ArgumentNullException(nameof(itemRepository));
+            if (jsonSerializer == null) throw new ArgumentNullException(nameof(jsonSerializer));
 
-        /// <summary>
-        /// 检查媒体项的媒体流信息
-        /// </summary>
-        private (bool hasVideo, bool hasAudio) CheckMediaStreams(BaseItem item)
-        {
-            var streams = item.GetMediaStreams() ?? new System.Collections.Generic.List<MediaBrowser.Model.Entities.MediaStream>();
-            bool hasVideo = streams.Any(s => s.Type == MediaBrowser.Model.Entities.MediaStreamType.Video);
-            bool hasAudio = streams.Any(s => s.Type == MediaBrowser.Model.Entities.MediaStreamType.Audio);
-            return (hasVideo, hasAudio);
+            _mediaInfoManager = mediaInfoManager ?? new MediaInfoManager(logger, libraryManager, itemRepository, jsonSerializer);
+            _mediaInfoService = new StrmMediaInfoService(logger, libraryManager, mediaProbeManager, itemRepository);
         }
 
         /// <summary>
         /// 处理单个STRM文件
         /// </summary>
-        /// <param name="item">媒体项</param>
-        /// <param name="cancellationToken">取消令牌</param>
-        /// <returns>处理结果</returns>
-        public async Task<ProcessResult> ProcessStrmFileAsync(BaseItem item, System.Threading.CancellationToken cancellationToken = default)
+        public async Task<ProcessResult> ProcessStrmFileAsync(BaseItem item, CancellationToken cancellationToken = default)
         {
             using var monitor = new PerformanceMonitor(_logger, "Processing", item.Name);
-            
+
             try
             {
                 _logger.Debug($"StrmTool - Processing {item.Name}");
@@ -63,64 +53,71 @@ namespace StrmTool.Common
                 if (MediaInfoHelper.HasCompleteMediaInfo(item))
                 {
                     _logger.Info($"StrmTool - {item.Name} already has complete media info, skipping...");
-                    monitor.Stop();
                     return ProcessResult.Skipped;
                 }
 
                 if (MediaInfoHelper.ShouldRestoreFromJson(item, _mediaInfoManager))
                 {
-                    _logger.Debug($"StrmTool - Found JSON file for {item.Name}, attempting to restore from JSON...");
-                    
-                    await _mediaInfoManager.RestoreItemAsync(item);
-                    
-                    var (hasVideo, hasAudio) = CheckMediaStreams(item);
-                    
-                    _logger.Debug($"StrmTool - {item.Name}: Restored from JSON. Video:{hasVideo}, Audio:{hasAudio}");
-                    monitor.Stop();
-                    return ProcessResult.RestoredFromJson;
+                    return await RestoreFromJsonAsync(item, cancellationToken);
                 }
-                else
-                {
-                    _logger.Debug($"StrmTool - No JSON file found for {item.Name}, probing media info...");
-                    
-                    var beforeStreams = item.GetMediaStreams() ?? new System.Collections.Generic.List<MediaBrowser.Model.Entities.MediaStream>();
-                    _logger.Debug($"StrmTool - Before: {beforeStreams.Count} streams");
 
-                    var streams = await _mediaInfoService.ProbeAndSaveMediaStreamsAsync(item, cancellationToken);
-                    
-                    var (hasVideo, hasAudio) = CheckMediaStreams(item);
-
-                    _logger.Info($"StrmTool - {item.Name}: Probed media info. Streams {beforeStreams.Count}→{streams.Count}. Video:{hasVideo}, Audio:{hasAudio}");
-
-                    if (!hasVideo || !hasAudio)
-                    {
-                        _logger.Warn($"StrmTool - {item.Name} may still lack full media info");
-                        monitor.Stop();
-                        return ProcessResult.ExtractionFailed;
-                    }
-                    else
-                    {
-                        try
-                        {
-                            await _mediaInfoManager.ExportItemAsync(item);
-                            _logger.Debug($"StrmTool - {item.Name}: Media info exported to JSON file");
-                            monitor.Stop();
-                            return ProcessResult.ExtractedAndExported;
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.Error($"StrmTool - Error exporting {item.Name} to JSON: {ex.Message}");
-                            monitor.Stop();
-                            return ProcessResult.ExtractionFailed;
-                        }
-                    }
-                }
+                return await ExtractAndExportAsync(item, cancellationToken);
             }
             catch (Exception ex)
             {
                 _logger.Error($"StrmTool - Error processing {item.Name} ({item.Path}): {ex.Message}");
-                monitor.Stop();
                 return ProcessResult.Failed;
+            }
+        }
+
+        private async Task<ProcessResult> RestoreFromJsonAsync(BaseItem item, CancellationToken cancellationToken)
+        {
+            _logger.Debug($"StrmTool - Found JSON file for {item.Name}, attempting to restore from JSON...");
+
+            await _mediaInfoManager.RestoreItemAsync(item, cancellationToken);
+
+            var streams = item.GetMediaStreams() ?? new System.Collections.Generic.List<MediaBrowser.Model.Entities.MediaStream>();
+            bool hasVideo = streams.Any(s => s.Type == MediaBrowser.Model.Entities.MediaStreamType.Video);
+            bool hasAudio = streams.Any(s => s.Type == MediaBrowser.Model.Entities.MediaStreamType.Audio);
+
+            _logger.Debug($"StrmTool - {item.Name}: Restored from JSON. Video:{hasVideo}, Audio:{hasAudio}");
+            return ProcessResult.RestoredFromJson;
+        }
+
+        private async Task<ProcessResult> ExtractAndExportAsync(BaseItem item, CancellationToken cancellationToken)
+        {
+            _logger.Debug($"StrmTool - No JSON file found for {item.Name}, probing media info...");
+
+            var beforeStreams = item.GetMediaStreams() ?? new System.Collections.Generic.List<MediaBrowser.Model.Entities.MediaStream>();
+            _logger.Debug($"StrmTool - Before: {beforeStreams.Count} streams");
+
+            var streams = await _mediaInfoService.ProbeAndSaveMediaStreamsAsync(item, cancellationToken);
+
+            var streamList = item.GetMediaStreams() ?? new System.Collections.Generic.List<MediaBrowser.Model.Entities.MediaStream>();
+            bool hasVideo = streamList.Any(s => s.Type == MediaBrowser.Model.Entities.MediaStreamType.Video);
+            bool hasAudio = streamList.Any(s => s.Type == MediaBrowser.Model.Entities.MediaStreamType.Audio);
+
+            _logger.Info($"StrmTool - {item.Name}: Probed media info. Streams {beforeStreams.Count}→{streams.Count}. Video:{hasVideo}, Audio:{hasAudio}");
+
+            // 只要有任意一种媒体流就算成功
+            bool isSuccess = hasVideo || hasAudio;
+
+            if (!isSuccess)
+            {
+                _logger.Warn($"StrmTool - {item.Name} may still lack full media info");
+                return ProcessResult.ExtractionFailed;
+            }
+
+            try
+            {
+                await _mediaInfoManager.ExportItemAsync(item, cancellationToken);
+                _logger.Debug($"StrmTool - {item.Name}: Media info exported to JSON file");
+                return ProcessResult.ExtractedAndExported;
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"StrmTool - Error exporting {item.Name} to JSON: {ex.Message}");
+                return ProcessResult.ExtractionFailed;
             }
         }
     }

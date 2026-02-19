@@ -1,3 +1,7 @@
+using System;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller.Library;
@@ -7,21 +11,27 @@ using MediaBrowser.Model.Drawing;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
-using StrmTool.Handlers;
 using StrmTool.Common;
-using System;
-using System.IO;
+using StrmTool.Handlers;
 
 namespace StrmTool
 {
-    public class Plugin : BasePlugin<PluginConfiguration>, IHasThumbImage
+    public class Plugin : BasePlugin<PluginConfiguration>, IHasThumbImage, IDisposable
     {
-        public static Plugin Instance { get; private set; } = null!;
+        public static Plugin? Instance { get; private set; }
         public static string PluginName => "StrmTool";
+
+        public static Plugin RequireInstance()
+        {
+            return Instance ?? throw new InvalidOperationException("Plugin is not initialized");
+        }
 
         private ItemAddedEventHandler? _eventHandler;
         private ILibraryManager? _libraryManager;
+        private CancellationTokenSource? _cancellationTokenSource;
+        private bool _disposed;
         public static IJsonSerializer? JsonSerializer { get; private set; }
+        private EventHandler<UnobservedTaskExceptionEventArgs>? _unobservedTaskExceptionHandler;
 
         public Plugin(
             IApplicationPaths applicationPaths,
@@ -36,7 +46,9 @@ namespace StrmTool
             Instance = this;
             JsonSerializer = jsonSerializer;
             _libraryManager = libraryManager;
+            _cancellationTokenSource = new CancellationTokenSource();
             RegisterEventHandlers(libraryManager, logger, itemRepository, jsonSerializer, mediaProbeManager);
+            RegisterUnobservedTaskExceptionHandler(logger);
         }
 
         private void RegisterEventHandlers(
@@ -48,7 +60,7 @@ namespace StrmTool
         {
             try
             {
-                _eventHandler = new ItemAddedEventHandler(logger, libraryManager, itemRepository, jsonSerializer, mediaProbeManager);
+                _eventHandler = new ItemAddedEventHandler(logger, libraryManager, itemRepository, jsonSerializer, mediaProbeManager, _cancellationTokenSource);
                 libraryManager.ItemAdded += _eventHandler.OnItemAdded;
 
                 logger.Info("StrmTool - Item added event handler registered at plugin level");
@@ -56,6 +68,27 @@ namespace StrmTool
             catch (Exception ex)
             {
                 logger.Error($"StrmTool - Error registering event handlers at plugin level: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 注册未观察任务异常处理器，防止未捕获的异常导致应用崩溃
+        /// </summary>
+        private void RegisterUnobservedTaskExceptionHandler(ILogger logger)
+        {
+            try
+            {
+                _unobservedTaskExceptionHandler = (sender, e) =>
+                {
+                    logger.Error($"StrmTool - Unobserved task exception: {e.Exception?.Message}");
+                    e.SetObserved();
+                };
+                TaskScheduler.UnobservedTaskException += _unobservedTaskExceptionHandler;
+                logger.Info("StrmTool - Unobserved task exception handler registered");
+            }
+            catch (Exception ex)
+            {
+                logger.Error($"StrmTool - Error registering unobserved task exception handler: {ex.Message}");
             }
         }
 
@@ -70,6 +103,13 @@ namespace StrmTool
                 {
                     _libraryManager.ItemAdded -= _eventHandler.OnItemAdded;
                 }
+
+                if (_cancellationTokenSource != null && !_cancellationTokenSource.IsCancellationRequested)
+                {
+                    _cancellationTokenSource.Cancel();
+                }
+
+                UnregisterUnobservedTaskExceptionHandler();
             }
             catch (Exception)
             {
@@ -83,11 +123,47 @@ namespace StrmTool
         }
 
         /// <summary>
-        /// 析构函数，确保资源释放
+        /// 注销未观察任务异常处理器
         /// </summary>
-        ~Plugin()
+        private void UnregisterUnobservedTaskExceptionHandler()
         {
-            UnregisterEventHandlers();
+            try
+            {
+                if (_unobservedTaskExceptionHandler != null)
+                {
+                    TaskScheduler.UnobservedTaskException -= _unobservedTaskExceptionHandler;
+                }
+            }
+            catch (Exception)
+            {
+                // 忽略卸载时的错误
+            }
+        }
+
+        /// <summary>
+        /// 释放资源
+        /// </summary>
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        /// <summary>
+        /// 释放资源
+        /// </summary>
+        protected virtual void Dispose(bool disposing)
+        {
+            if (_disposed)
+                return;
+
+            if (disposing)
+            {
+                UnregisterEventHandlers();
+                _cancellationTokenSource?.Dispose();
+            }
+
+            _disposed = true;
         }
 
         public Stream GetThumbImage()

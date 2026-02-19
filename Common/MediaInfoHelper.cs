@@ -23,26 +23,13 @@ namespace StrmTool.Common
         }
 
         /// <summary>
-        /// 检查媒体项是否包含完整的音视频信息
+        /// 检查媒体项是否包含媒体流信息
+        /// 只要有音频流或视频流中的任意一种，就认为媒体信息已存在
         /// </summary>
-        /// <param name="item">媒体项</param>
-        /// <returns>是否包含完整的音视频信息</returns>
         public static bool HasCompleteMediaInfo(BaseItem item)
         {
             var streams = item.GetMediaStreams() ?? new List<MediaStream>();
-            bool hasVideo = streams.Any(s => s.Type == MediaStreamType.Video);
-            bool hasAudio = streams.Any(s => s.Type == MediaStreamType.Audio);
-            return hasVideo && hasAudio;
-        }
-
-        /// <summary>
-        /// 检查媒体项是否需要恢复（缺少音视频信息）
-        /// </summary>
-        /// <param name="item">媒体项</param>
-        /// <returns>是否需要恢复</returns>
-        public static bool NeedsRestore(BaseItem item)
-        {
-            return !HasCompleteMediaInfo(item);
+            return streams.Any(s => s.Type == MediaStreamType.Video || s.Type == MediaStreamType.Audio);
         }
 
         /// <summary>
@@ -60,19 +47,14 @@ namespace StrmTool.Common
         /// <summary>
         /// 检查媒体项是否需要从JSON文件恢复
         /// </summary>
-        /// <param name="item">媒体项</param>
-        /// <param name="mediaInfoManager">媒体信息管理器</param>
-        /// <returns>是否需要从JSON文件恢复</returns>
         public static bool ShouldRestoreFromJson(BaseItem item, MediaInfoManager mediaInfoManager)
         {
-            return NeedsRestore(item) && HasJsonFile(item, mediaInfoManager);
+            return !HasCompleteMediaInfo(item) && HasJsonFile(item, mediaInfoManager);
         }
 
         /// <summary>
         /// 获取库中所有的STRM文件
         /// </summary>
-        /// <param name="libraryManager">库管理器</param>
-        /// <returns>STRM文件列表</returns>
         public static List<BaseItem> GetAllStrmFiles(ILibraryManager libraryManager)
         {
             var query = new InternalItemsQuery
@@ -88,22 +70,8 @@ namespace StrmTool.Common
         }
 
         /// <summary>
-        /// 获取需要恢复的STRM文件（缺少音视频信息）
-        /// </summary>
-        /// <param name="libraryManager">库管理器</param>
-        /// <returns>需要恢复的STRM文件列表</returns>
-        public static List<BaseItem> GetStrmFilesNeedingRestore(ILibraryManager libraryManager)
-        {
-            var allStrmFiles = GetAllStrmFiles(libraryManager);
-            return allStrmFiles.Where(NeedsRestore).ToList();
-        }
-
-        /// <summary>
         /// 获取需要恢复且有JSON文件的STRM文件
         /// </summary>
-        /// <param name="libraryManager">库管理器</param>
-        /// <param name="mediaInfoManager">媒体信息管理器</param>
-        /// <returns>需要恢复且有JSON文件的STRM文件列表</returns>
         public static List<BaseItem> GetStrmFilesNeedingRestoreWithJson(ILibraryManager libraryManager, MediaInfoManager mediaInfoManager)
         {
             var allStrmFiles = GetAllStrmFiles(libraryManager);
@@ -113,8 +81,6 @@ namespace StrmTool.Common
         /// <summary>
         /// 获取包含完整媒体信息的STRM文件
         /// </summary>
-        /// <param name="libraryManager">库管理器</param>
-        /// <returns>包含完整媒体信息的STRM文件列表</returns>
         public static List<BaseItem> GetStrmFilesWithCompleteMediaInfo(ILibraryManager libraryManager)
         {
             var allStrmFiles = GetAllStrmFiles(libraryManager);

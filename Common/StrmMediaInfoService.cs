@@ -29,10 +29,10 @@ namespace StrmTool.Common
             IMediaProbeManager mediaProbeManager,
             IItemRepository itemRepository)
         {
-            _logger = logger;
-            _libraryManager = libraryManager;
-            _mediaProbeManager = mediaProbeManager;
-            _itemRepository = itemRepository;
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _libraryManager = libraryManager ?? throw new ArgumentNullException(nameof(libraryManager));
+            _mediaProbeManager = mediaProbeManager ?? throw new ArgumentNullException(nameof(mediaProbeManager));
+            _itemRepository = itemRepository ?? throw new ArgumentNullException(nameof(itemRepository));
         }
 
         public async Task<List<MediaStream>> ProbeAndSaveMediaStreamsAsync(BaseItem item, CancellationToken cancellationToken)

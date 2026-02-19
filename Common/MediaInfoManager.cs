@@ -1,10 +1,10 @@
 using System;
-using System.IO;
-using System.Threading;
-using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Entities.TV;
@@ -32,10 +32,10 @@ namespace StrmTool.Common
 
         public MediaInfoManager(ILogger logger, ILibraryManager libraryManager, IItemRepository itemRepository, IJsonSerializer jsonSerializer)
         {
-            _logger = logger;
-            _libraryManager = libraryManager;
-            _itemRepository = itemRepository;
-            _jsonSerializer = jsonSerializer;
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _libraryManager = libraryManager ?? throw new ArgumentNullException(nameof(libraryManager));
+            _itemRepository = itemRepository ?? throw new ArgumentNullException(nameof(itemRepository));
+            _jsonSerializer = jsonSerializer ?? throw new ArgumentNullException(nameof(jsonSerializer));
         }
 
         /// <summary>
@@ -70,7 +70,7 @@ namespace StrmTool.Common
                     }
                     else
                     {
-                        await ExportItemAsync(item);
+                        await ExportItemAsync(item, cancellationToken);
                         _logger.Info($"StrmTool successfully exported {item.Name} to: {filePath}");
                         exported++;
                     }
@@ -90,10 +90,10 @@ namespace StrmTool.Common
         /// <summary>
         /// 导出单个媒体项信息为 JSON 文件。
         /// </summary>
-        public Task ExportItemAsync(BaseItem item)
+        public async Task ExportItemAsync(BaseItem item, CancellationToken cancellationToken = default)
         {
             if (item == null)
-                return Task.CompletedTask;
+                return;
 
             try
             {
@@ -141,7 +141,7 @@ namespace StrmTool.Common
                         var primaryImageInfo = item.GetImageInfo(ImageType.Primary, 0);
                         if (primaryImageInfo != null && File.Exists(primaryImageInfo.Path))
                         {
-                            var imageBytes = File.ReadAllBytes(primaryImageInfo.Path);
+                            var imageBytes = await File.ReadAllBytesAsync(primaryImageInfo.Path, cancellationToken);
                             var base64String = Convert.ToBase64String(imageBytes);
                             jsonItem.EmbeddedImage = base64String;
                         }
@@ -151,7 +151,7 @@ namespace StrmTool.Common
                 string filePath = GetMediaInfoJsonPath(item);
 
                 var json = _jsonSerializer.SerializeToString(mediaSourcesWithChapters);
-                File.WriteAllText(filePath, json);
+                await File.WriteAllTextAsync(filePath, json, cancellationToken);
 
                 _logger.Debug($"StrmTool exported {item.Name} → {filePath}");
             }
@@ -159,8 +159,6 @@ namespace StrmTool.Common
             {
                 _logger.ErrorException($"StrmTool error exporting media info for {item.Name}", ex);
             }
-
-            return Task.CompletedTask;
         }
 
         /// <summary>
@@ -239,8 +237,17 @@ namespace StrmTool.Common
                     return;
                 }
 
-                var jsonContent = await File.ReadAllTextAsync(jsonFilePath);
-                var mediaSourcesWithChapters = _jsonSerializer.DeserializeFromString<List<MediaSourceWithChapters>>(jsonContent);
+                List<MediaSourceWithChapters>? mediaSourcesWithChapters;
+                try
+                {
+                    var jsonContent = await File.ReadAllTextAsync(jsonFilePath, cancellationToken);
+                    mediaSourcesWithChapters = _jsonSerializer.DeserializeFromString<List<MediaSourceWithChapters>>(jsonContent);
+                }
+                catch (Exception ex) when (ex is InvalidOperationException)
+                {
+                    _logger.ErrorException($"StrmTool - JSON deserialization failed for {jsonFilePath}. File may be corrupted.", ex);
+                    return;
+                }
 
                 if (mediaSourcesWithChapters == null)
                 {

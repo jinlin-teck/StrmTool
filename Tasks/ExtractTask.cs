@@ -7,6 +7,7 @@ using MediaBrowser.Model.Serialization;
 using StrmTool.Common;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -38,9 +39,11 @@ namespace StrmTool.Tasks
             _logger.Info("StrmTool - Starting strm file scan...");
 
             var mediaInfoManager = new MediaInfoManager(_logger, _libraryManager, _itemRepository, _jsonSerializer);
-            var processor = new StrmFileProcessor(_logger, _libraryManager, _itemRepository, _mediaProbeManager, mediaInfoManager);
+            var processor = new StrmFileProcessor(_logger, _libraryManager, _itemRepository, _mediaProbeManager, _jsonSerializer, mediaInfoManager);
 
-            var strmItems = MediaInfoHelper.GetStrmFilesNeedingRestore(_libraryManager);
+            var strmItems = MediaInfoHelper.GetAllStrmFiles(_libraryManager)
+                .Where(i => !MediaInfoHelper.HasCompleteMediaInfo(i))
+                .ToList();
             _logger.Info($"StrmTool - {strmItems.Count} strm files need media probing");
 
             if (strmItems.Count == 0)

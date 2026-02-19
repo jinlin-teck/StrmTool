@@ -60,11 +60,8 @@ namespace StrmTool.Common
             if (_disposed)
                 return;
 
+            Stop();
             _disposed = true;
-            if (_stopwatch.IsRunning)
-            {
-                _stopwatch.Stop();
-            }
         }
     }
 }

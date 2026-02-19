@@ -1,13 +1,13 @@
-using MediaBrowser.Controller.Library;
-using MediaBrowser.Controller.Entities;
-using MediaBrowser.Controller.MediaEncoding;
-using MediaBrowser.Model.Logging;
-using MediaBrowser.Controller.Persistence;
-using MediaBrowser.Model.Serialization;
-using StrmTool.Common;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.MediaEncoding;
+using MediaBrowser.Controller.Persistence;
+using MediaBrowser.Model.Logging;
+using MediaBrowser.Model.Serialization;
+using StrmTool.Common;
 
 namespace StrmTool.Handlers
 {
@@ -18,7 +18,8 @@ namespace StrmTool.Handlers
         private readonly IItemRepository _itemRepository;
         private readonly MediaInfoManager _mediaInfoManager;
         private readonly IMediaProbeManager _mediaProbeManager;
-        private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
+        private readonly CancellationTokenSource? _cancellationTokenSource;
+        private readonly SemaphoreSlim _semaphore;
 
         public ItemAddedEventHandler(
             ILogger logger,
@@ -26,12 +27,15 @@ namespace StrmTool.Handlers
             IItemRepository itemRepository,
             IJsonSerializer jsonSerializer,
             IMediaProbeManager mediaProbeManager,
+            CancellationTokenSource? cancellationTokenSource = null,
             MediaInfoManager? mediaInfoManager = null)
         {
-            _logger = logger;
-            _libraryManager = libraryManager;
-            _itemRepository = itemRepository;
-            _mediaProbeManager = mediaProbeManager;
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _libraryManager = libraryManager ?? throw new ArgumentNullException(nameof(libraryManager));
+            _itemRepository = itemRepository ?? throw new ArgumentNullException(nameof(itemRepository));
+            _mediaProbeManager = mediaProbeManager ?? throw new ArgumentNullException(nameof(mediaProbeManager));
+            _cancellationTokenSource = cancellationTokenSource;
+            _semaphore = new SemaphoreSlim(1, 1);
             _mediaInfoManager = mediaInfoManager ?? new MediaInfoManager(logger, libraryManager, itemRepository, jsonSerializer);
         }
 
@@ -39,6 +43,11 @@ namespace StrmTool.Handlers
         {
             if (e.Item == null || string.IsNullOrEmpty(e.Item.Path) || 
                 !MediaInfoHelper.IsStrmFile(e.Item.Path))
+            {
+                return;
+            }
+
+            if (_cancellationTokenSource?.IsCancellationRequested == true)
             {
                 return;
             }
@@ -53,15 +62,30 @@ namespace StrmTool.Handlers
 
             _logger.Debug($"StrmTool - Processing new strm file: {e.Item.Name}");
 
-            Task.Run(async () => await ProcessItemWithErrorHandlingAsync(e.Item));
+            var cancellationToken = _cancellationTokenSource?.Token ?? CancellationToken.None;
+            Task.Run(async () => await ProcessItemWithErrorHandlingAsync(e.Item, cancellationToken), cancellationToken);
         }
 
-        private async Task ProcessItemWithErrorHandlingAsync(BaseItem item)
+        private async Task ProcessItemWithErrorHandlingAsync(BaseItem item, CancellationToken cancellationToken)
         {
-            await _semaphore.WaitAsync();
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            await _semaphore.WaitAsync(cancellationToken);
             try
             {
-                await ProcessItemAsync(item);
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                await ProcessItemAsync(item, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.Debug($"StrmTool - Processing cancelled for {item.Name}");
             }
             catch (Exception ex)
             {
@@ -73,29 +97,40 @@ namespace StrmTool.Handlers
             }
         }
 
-        private async Task ProcessItemAsync(BaseItem item)
+        private async Task ProcessItemAsync(BaseItem item, CancellationToken cancellationToken)
         {
-            await Task.Delay(CommonConfiguration.StandardProcessingDelayMs);
+            await Task.Delay(CommonConfiguration.StandardProcessingDelayMs, cancellationToken);
 
-            var processor = new StrmFileProcessor(_logger, _libraryManager, _itemRepository, _mediaProbeManager, _mediaInfoManager);
-            var result = await processor.ProcessStrmFileAsync(item);
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
 
+            var jsonSerializer = Plugin.JsonSerializer ?? throw new InvalidOperationException("Plugin.JsonSerializer is not initialized");
+            var processor = new StrmFileProcessor(_logger, _libraryManager, _itemRepository, _mediaProbeManager, jsonSerializer, _mediaInfoManager);
+            var result = await processor.ProcessStrmFileAsync(item, cancellationToken);
+
+            LogProcessResult(item.Name, result);
+        }
+
+        private void LogProcessResult(string itemName, ProcessResult result)
+        {
             switch (result)
             {
                 case ProcessResult.Skipped:
-                    _logger.Debug($"StrmTool - {item.Name} was skipped");
+                    _logger.Debug($"StrmTool - {itemName} was skipped");
                     break;
                 case ProcessResult.RestoredFromJson:
-                    _logger.Info($"StrmTool - {item.Name} successfully restored from JSON");
+                    _logger.Info($"StrmTool - {itemName} successfully restored from JSON");
                     break;
                 case ProcessResult.ExtractedAndExported:
-                    _logger.Info($"StrmTool - {item.Name} successfully extracted and exported");
+                    _logger.Info($"StrmTool - {itemName} successfully extracted and exported");
                     break;
                 case ProcessResult.ExtractionFailed:
-                    _logger.Warn($"StrmTool - {item.Name} extraction failed, will be processed by scheduled task");
+                    _logger.Warn($"StrmTool - {itemName} extraction failed, will be processed by scheduled task");
                     break;
                 case ProcessResult.Failed:
-                    _logger.Error($"StrmTool - {item.Name} processing failed");
+                    _logger.Error($"StrmTool - {itemName} processing failed");
                     break;
             }
         }
