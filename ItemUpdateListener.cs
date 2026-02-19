@@ -75,8 +75,8 @@ namespace StrmTool
                     return;
                 }
 
-                // 检查Size是否被重置（strm文件通常很小，小于1KB）
-                bool sizeReset = item.Size < 1024 && cacheData.Size > 1024;
+                // 检查Size是否被重置（当前Size明显小于缓存的Size）
+                bool sizeReset = cacheData.Size > 0 && item.Size < cacheData.Size / 10;
                 bool needsUpdate = sizeReset;
 
                 if (!needsUpdate)
