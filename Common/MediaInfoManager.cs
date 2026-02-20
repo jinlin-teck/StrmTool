@@ -111,6 +111,12 @@ namespace StrmTool.Common
             BaseItem item, CancellationToken cancellationToken)
         {
             var libraryOptions = _libraryManager.GetLibraryOptions(item);
+            if (libraryOptions == null)
+            {
+                LogHelper.Warn(_logger, $"Library options is null for item: {item.Name}, skipping export");
+                return new List<MediaSourceWithChapters>();
+            }
+
             var mediaSources = item.GetMediaSources(true, false, libraryOptions);
             var chapters = _itemRepository.GetChapters(item);
 

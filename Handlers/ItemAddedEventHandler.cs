@@ -90,7 +90,9 @@ namespace StrmTool.Handlers
             StrmLogHelper.Debug(_logger, $"Processing new strm file: {e.Item.Name}");
 
             var cancellationToken = _cancellationTokenSource?.Token ?? CancellationToken.None;
-            Task.Run(async () => await ProcessItemWithErrorHandlingAsync(e.Item, cancellationToken), cancellationToken);
+            
+            // 使用有限并发控制处理新文件
+            _ = Task.Run(async () => await ProcessItemWithErrorHandlingAsync(e.Item, cancellationToken), cancellationToken);
         }
 
         private async Task ProcessItemWithErrorHandlingAsync(BaseItem item, CancellationToken cancellationToken)

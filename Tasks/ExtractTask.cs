@@ -6,6 +6,7 @@ using MediaBrowser.Model.Tasks;
 using MediaBrowser.Model.Serialization;
 using StrmTool.Common;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -54,27 +55,37 @@ namespace StrmTool.Tasks
                 return;
             }
 
-            int processed = 0;
             int total = strmItems.Count;
+            int processed = 0;
+            using var semaphore = new SemaphoreSlim(CommonConfiguration.MaxConcurrency, CommonConfiguration.MaxConcurrency);
 
-            foreach (var item in strmItems)
+            var tasks = strmItems.Select(async item =>
             {
-                if (cancellationToken.IsCancellationRequested)
+                await semaphore.WaitAsync(cancellationToken);
+                try
                 {
-                    StrmLogHelper.Info(_logger, "Task was cancelled");
-                    break;
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    await processor.ProcessStrmFileAsync(item, cancellationToken);
+
+                    var count = Interlocked.Increment(ref processed);
+                    progress.Report((double)count / total * 100);
+
+                    if (count < total)
+                    {
+                        await Task.Delay(CommonConfiguration.StandardProcessingDelayMs, cancellationToken);
+                    }
                 }
-
-                await processor.ProcessStrmFileAsync(item, cancellationToken);
-
-                processed++;
-                progress.Report((double)processed / total * 100);
-
-                if (processed < total)
+                finally
                 {
-                    await Task.Delay(CommonConfiguration.StandardProcessingDelayMs, cancellationToken);
+                    semaphore.Release();
                 }
-            }
+            });
+
+            await Task.WhenAll(tasks);
 
             progress.Report(100);
             StrmLogHelper.Info(_logger, $"Task complete. Successfully processed {processed}/{total} strm files.");

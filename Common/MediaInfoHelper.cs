@@ -40,6 +40,9 @@ namespace StrmTool.Common
         /// <returns>是否存在JSON文件</returns>
         public static bool HasJsonFile(BaseItem item, MediaInfoManager mediaInfoManager)
         {
+            if (mediaInfoManager == null)
+                return false;
+
             var jsonFilePath = mediaInfoManager.GetMediaInfoJsonPath(item);
             return System.IO.File.Exists(jsonFilePath);
         }
@@ -49,6 +52,9 @@ namespace StrmTool.Common
         /// </summary>
         public static bool ShouldRestoreFromJson(BaseItem item, MediaInfoManager mediaInfoManager)
         {
+            if (mediaInfoManager == null)
+                return false;
+
             return !HasCompleteMediaInfo(item) && HasJsonFile(item, mediaInfoManager);
         }
 

@@ -21,5 +21,10 @@ namespace StrmTool.Common
         /// 媒体信息JSON文件扩展名
         /// </summary>
         public const string MediaInfoFileExtension = "-mediainfo.json";
+
+        /// <summary>
+        /// 最大并发处理数
+        /// </summary>
+        public const int MaxConcurrency = 3;
     }
 }

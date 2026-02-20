@@ -19,19 +19,40 @@ namespace StrmTool
 {
     public class Plugin : BasePlugin<PluginConfiguration>, IHasThumbImage, IDisposable
     {
+        private static readonly object _lock = new object();
         public static Plugin? Instance { get; private set; }
         public static string PluginName => "StrmTool";
 
         public static Plugin RequireInstance()
         {
-            return Instance ?? throw new InvalidOperationException("Plugin is not initialized");
+            lock (_lock)
+            {
+                return Instance ?? throw new InvalidOperationException("Plugin is not initialized");
+            }
         }
 
         private ItemAddedEventHandler? _eventHandler;
         private ILibraryManager? _libraryManager;
         private CancellationTokenSource? _cancellationTokenSource;
         private bool _disposed;
-        public static IJsonSerializer? JsonSerializer { get; private set; }
+        private static IJsonSerializer? _jsonSerializer;
+        public static IJsonSerializer? JsonSerializer
+        {
+            get
+            {
+                lock (_lock)
+                {
+                    return _jsonSerializer;
+                }
+            }
+            private set
+            {
+                lock (_lock)
+                {
+                    _jsonSerializer = value;
+                }
+            }
+        }
         private EventHandler<UnobservedTaskExceptionEventArgs>? _unobservedTaskExceptionHandler;
 
         public Plugin(
@@ -44,8 +65,11 @@ namespace StrmTool
             IMediaProbeManager mediaProbeManager
         ) : base(applicationPaths, xmlSerializer)
         {
-            Instance = this;
-            JsonSerializer = jsonSerializer;
+            lock (_lock)
+            {
+                Instance = this;
+                JsonSerializer = jsonSerializer;
+            }
             _libraryManager = libraryManager;
             _cancellationTokenSource = new CancellationTokenSource();
             RegisterEventHandlers(libraryManager, logger, itemRepository, jsonSerializer, mediaProbeManager);
