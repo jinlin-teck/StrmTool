@@ -17,8 +17,8 @@ namespace StrmTool.Common
 
         public PerformanceMonitor(ILogger logger, string operationName, string itemName = "")
         {
-            _logger = logger;
-            _operationName = operationName;
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _operationName = operationName ?? throw new ArgumentNullException(nameof(operationName));
             _itemName = itemName;
             _stopwatch = Stopwatch.StartNew();
         }

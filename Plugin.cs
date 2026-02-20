@@ -13,6 +13,7 @@ using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
 using StrmTool.Common;
 using StrmTool.Handlers;
+using StrmLogHelper = StrmTool.Common.LogHelper;
 
 namespace StrmTool
 {
@@ -60,14 +61,19 @@ namespace StrmTool
         {
             try
             {
-                _eventHandler = new ItemAddedEventHandler(logger, libraryManager, itemRepository, jsonSerializer, mediaProbeManager, _cancellationTokenSource);
+                var mediaInfoManager = new MediaInfoManager(logger, libraryManager, itemRepository, jsonSerializer);
+                var strmFileProcessor = new StrmFileProcessor(
+                    logger, libraryManager, itemRepository, mediaProbeManager, jsonSerializer, mediaInfoManager);
+                _eventHandler = new ItemAddedEventHandler(
+                    logger, libraryManager, itemRepository, jsonSerializer, mediaProbeManager, 
+                    _cancellationTokenSource, mediaInfoManager, strmFileProcessor);
                 libraryManager.ItemAdded += _eventHandler.OnItemAdded;
 
-                logger.Info("StrmTool - Item added event handler registered at plugin level");
+                StrmLogHelper.Info(logger, "Item added event handler registered at plugin level");
             }
             catch (Exception ex)
             {
-                logger.Error($"StrmTool - Error registering event handlers at plugin level: {ex.Message}");
+                StrmLogHelper.Error(logger, $"Error registering event handlers at plugin level: {ex.Message}");
             }
         }
 
@@ -80,15 +86,15 @@ namespace StrmTool
             {
                 _unobservedTaskExceptionHandler = (sender, e) =>
                 {
-                    logger.Error($"StrmTool - Unobserved task exception: {e.Exception?.Message}");
+                    StrmLogHelper.Error(logger, $"Unobserved task exception: {e.Exception?.Message}");
                     e.SetObserved();
                 };
                 TaskScheduler.UnobservedTaskException += _unobservedTaskExceptionHandler;
-                logger.Info("StrmTool - Unobserved task exception handler registered");
+                StrmLogHelper.Info(logger, "Unobserved task exception handler registered");
             }
             catch (Exception ex)
             {
-                logger.Error($"StrmTool - Error registering unobserved task exception handler: {ex.Message}");
+                StrmLogHelper.Error(logger, $"Error registering unobserved task exception handler: {ex.Message}");
             }
         }
 
@@ -117,6 +123,7 @@ namespace StrmTool
             }
             finally
             {
+                _eventHandler?.Dispose();
                 _eventHandler = null;
                 _libraryManager = null;
             }

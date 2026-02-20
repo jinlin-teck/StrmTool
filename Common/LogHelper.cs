@@ -15,7 +15,7 @@ namespace StrmTool.Common
         /// </summary>
         public static void Debug(ILogger logger, string message)
         {
-            logger?.Debug($"{LogPrefix} - {message}");
+            logger.Debug($"{LogPrefix} - {message}");
         }
 
         /// <summary>
@@ -23,7 +23,7 @@ namespace StrmTool.Common
         /// </summary>
         public static void Info(ILogger logger, string message)
         {
-            logger?.Info($"{LogPrefix} - {message}");
+            logger.Info($"{LogPrefix} - {message}");
         }
 
         /// <summary>
@@ -31,7 +31,7 @@ namespace StrmTool.Common
         /// </summary>
         public static void Warn(ILogger logger, string message)
         {
-            logger?.Warn($"{LogPrefix} - {message}");
+            logger.Warn($"{LogPrefix} - {message}");
         }
 
         /// <summary>
@@ -39,7 +39,7 @@ namespace StrmTool.Common
         /// </summary>
         public static void Error(ILogger logger, string message)
         {
-            logger?.Error($"{LogPrefix} - {message}");
+            logger.Error($"{LogPrefix} - {message}");
         }
 
         /// <summary>
@@ -47,9 +47,6 @@ namespace StrmTool.Common
         /// </summary>
         public static void ErrorException(ILogger logger, string message, Exception exception)
         {
-            if (logger == null)
-                return;
-
             var errorMessage = $"{LogPrefix} - {message}";
             
             if (exception != null)

@@ -41,10 +41,10 @@ namespace StrmTool.Common
 
             try
             {
-                var strmContent = ReadStrmSourcePath(item.Path);
+                var strmContent = ReadStrmSourcePath(item.Path, _logger);
                 if (string.IsNullOrWhiteSpace(strmContent))
                 {
-                    _logger.Warn($"StrmTool - STRM file is empty: {item.Path}");
+                    LogHelper.Warn(_logger, $"STRM file is empty: {item.Path}");
                     return new List<MediaStream>();
                 }
 
@@ -85,16 +85,16 @@ namespace StrmTool.Common
                     _libraryManager.UpdateItems(new List<BaseItem> { item }, null,
                         ItemUpdateType.MetadataImport, false, false, null, cancellationToken);
                     
-                    _logger.Debug($"StrmTool - Successfully saved {mediaInfo.MediaStreams.Count} media streams and updated item properties for {fileName}");
+                    LogHelper.Debug(_logger, $"Successfully saved {mediaInfo.MediaStreams.Count} media streams and updated item properties for {fileName}");
                     return mediaInfo.MediaStreams.ToList();
                 }
 
-                _logger.Debug($"StrmTool - No media streams found for {fileName}");
+                LogHelper.Debug(_logger, $"No media streams found for {fileName}");
                 return new List<MediaStream>();
             }
             catch (Exception ex)
             {
-                _logger.ErrorException($"StrmTool - Error probing STRM content for {fileName}", ex);
+                LogHelper.ErrorException(_logger, $"Error probing STRM content for {fileName}", ex);
                 return new List<MediaStream>();
             }
         }
@@ -125,18 +125,26 @@ namespace StrmTool.Common
             return MediaProtocol.File;
         }
 
-        private static string ReadStrmSourcePath(string strmFilePath)
+        private static string ReadStrmSourcePath(string strmFilePath, ILogger logger)
         {
-            foreach (var line in File.ReadLines(strmFilePath))
+            try
             {
-                var sourcePath = line.Trim();
-                if (!string.IsNullOrWhiteSpace(sourcePath))
+                foreach (var line in File.ReadLines(strmFilePath))
                 {
-                    return sourcePath;
+                    var sourcePath = line.Trim();
+                    if (!string.IsNullOrWhiteSpace(sourcePath))
+                    {
+                        return sourcePath;
+                    }
                 }
-            }
 
-            return string.Empty;
+                return string.Empty;
+            }
+            catch (Exception ex)
+            {
+                LogHelper.ErrorException(logger, $"Error reading STRM file: {strmFilePath}", ex);
+                return string.Empty;
+            }
         }
     }
 }

@@ -10,6 +10,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using StrmLogHelper = StrmTool.Common.LogHelper;
 
 namespace StrmTool.Tasks
 {
@@ -36,7 +37,7 @@ namespace StrmTool.Tasks
 
         public async Task Execute(CancellationToken cancellationToken, IProgress<double> progress)
         {
-            _logger.Info("StrmTool - Starting strm file scan...");
+            StrmLogHelper.Info(_logger, "Starting strm file scan...");
 
             var mediaInfoManager = new MediaInfoManager(_logger, _libraryManager, _itemRepository, _jsonSerializer);
             var processor = new StrmFileProcessor(_logger, _libraryManager, _itemRepository, _mediaProbeManager, _jsonSerializer, mediaInfoManager);
@@ -44,12 +45,12 @@ namespace StrmTool.Tasks
             var strmItems = MediaInfoHelper.GetAllStrmFiles(_libraryManager)
                 .Where(i => !MediaInfoHelper.HasCompleteMediaInfo(i))
                 .ToList();
-            _logger.Info($"StrmTool - {strmItems.Count} strm files need media probing");
+            StrmLogHelper.Info(_logger, $"{strmItems.Count} strm files need media probing");
 
             if (strmItems.Count == 0)
             {
                 progress.Report(100);
-                _logger.Info("StrmTool - Nothing to process, task complete.");
+                StrmLogHelper.Info(_logger, "Nothing to process, task complete.");
                 return;
             }
 
@@ -60,7 +61,7 @@ namespace StrmTool.Tasks
             {
                 if (cancellationToken.IsCancellationRequested)
                 {
-                    _logger.Info("StrmTool - Task was cancelled");
+                    StrmLogHelper.Info(_logger, "Task was cancelled");
                     break;
                 }
 
@@ -76,7 +77,7 @@ namespace StrmTool.Tasks
             }
 
             progress.Report(100);
-            _logger.Info($"StrmTool - Task complete. Successfully processed {processed}/{total} strm files.");
+            StrmLogHelper.Info(_logger, $"Task complete. Successfully processed {processed}/{total} strm files.");
         }
 
         public string Category => TaskLocalizer.GetCategory();
