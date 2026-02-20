@@ -29,6 +29,7 @@ namespace StrmTool
         private ItemUpdateListener _updateListener;
         private readonly CancellationTokenSource _backgroundTaskCts = new CancellationTokenSource();
         private readonly object _eventLock = new object();
+        private readonly object _configLock = new object();
 
         public ExtractTask(
             ILibraryManager libraryManager,
@@ -90,10 +91,37 @@ namespace StrmTool
         {
             if (Plugin.Instance != null)
             {
-                _config = Plugin.Instance.Configuration;
+                var newConfig = Plugin.Instance.Configuration;
+                lock (_configLock)
+                {
+                    if (newConfig.MaxConcurrentExtract != _config.MaxConcurrentExtract)
+                    {
+                        var oldSemaphore = _semaphore;
+                        _semaphore = new SemaphoreSlim(newConfig.MaxConcurrentExtract);
+                        
+                        // 延迟释放旧的 semaphore，等待正在使用它的任务完成
+                        // 理论上最多等待 30 秒（假设每个任务最多 5 分钟，但通常很快）
+                        _ = Task.Run(async () =>
+                        {
+                            await Task.Delay(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
+                            try
+                            {
+                                oldSemaphore?.Dispose();
+                            }
+                            catch
+                            {
+                                // 忽略释放错误
+                            }
+                        });
+                    }
+                    _config = newConfig;
+                }
             }
         }
 
+        /// <summary>
+        /// 处理 strm 文件项的通用方法
+        /// </summary>
         protected async Task<int> ProcessStrmItemsAsync(
             List<BaseItem> items,
             Func<BaseItem, CancellationToken, Task> processItemAsync,
@@ -131,6 +159,65 @@ namespace StrmTool
             await Task.WhenAll(tasks);
             progress.Report(100);
             return processed;
+        }
+
+        /// <summary>
+        /// 尝试从缓存加载媒体流，如果成功则直接保存
+        /// </summary>
+        /// <param name="item">库条目</param>
+        /// <param name="cancellationToken">取消令牌</param>
+        /// <returns>是否成功从缓存加载</returns>
+        private bool TryLoadFromCache(BaseItem item, CancellationToken cancellationToken)
+        {
+            if (!_config.EnableMediaInfoCache || _config.ForceRefreshIgnoreCache)
+            {
+                return false;
+            }
+
+            if (!_mediaCache.TryGetCachedMediaStreams(item.Path, out var cachedStreams))
+            {
+                return false;
+            }
+
+            try
+            {
+                _mediaInfoService.SaveMediaStreams(item.Id, cachedStreams, cancellationToken);
+                _logger.LogInformation("StrmTool - {Name}: Used cached media info ({Count} streams)",
+                    item.Name, cachedStreams.Count);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "StrmTool - {Name}: Failed to save cached media streams", item.Name);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 探测媒体流并保存到缓存
+        /// </summary>
+        /// <param name="item">库条目</param>
+        /// <param name="cancellationToken">取消令牌</param>
+        /// <returns>探测结果</returns>
+        private async Task<MediaProbeResult> ProbeAndCacheAsync(BaseItem item, CancellationToken cancellationToken)
+        {
+            var probeResult = await _mediaInfoService.ProbeMediaStreamsAsync(item, cancellationToken).ConfigureAwait(false);
+
+            if (_config.EnableMediaInfoCache && probeResult.Success)
+            {
+                await _mediaCache.SaveFullCacheAsync(
+                    item.Path,
+                    probeResult.MediaStreams,
+                    probeResult.Size,
+                    probeResult.RunTimeTicks,
+                    probeResult.Container,
+                    probeResult.TotalBitrate,
+                    probeResult.Width,
+                    probeResult.Height,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
+            return probeResult;
         }
 
         private void OnStrmFileDetected(object sender, BaseItem item)
@@ -230,8 +317,6 @@ namespace StrmTool
                 _logger.LogInformation("StrmTool - Found {Count} strm files in library, {NeedRefresh} need media info",
                     totalFound, strmItems.Count);
 
-                _logger.LogInformation("StrmTool - {Count} strm files need metadata refresh", strmItems.Count);
-
                 if (strmItems.Count == 0)
                 {
                     progress.Report(100);
@@ -263,28 +348,13 @@ namespace StrmTool
             var beforeStreams = _mediaInfoService.GetItemMediaStreams(item);
             _logger.LogTrace("StrmTool - Before: {Count} streams", beforeStreams.Count);
 
-            if (_config.EnableMediaInfoCache && !_config.ForceRefreshIgnoreCache && _mediaCache.TryGetCachedMediaStreams(item.Path, out var cachedStreams))
+            // 首先尝试从缓存加载
+            bool loadedFromCache = TryLoadFromCache(item, cancellationToken);
+
+            if (!loadedFromCache)
             {
-                _mediaInfoService.SaveMediaStreams(item.Id, cachedStreams, cancellationToken);
-                _logger.LogInformation("StrmTool - {Name}: Used cached media info ({Count} streams)",
-                    item.Name, cachedStreams.Count);
-            }
-            else
-            {
-                var probeResult = await _mediaInfoService.ProbeMediaStreamsAsync(item, cancellationToken).ConfigureAwait(false);
-                if (_config.EnableMediaInfoCache && probeResult.Success)
-                {
-                    await _mediaCache.SaveFullCacheAsync(
-                        item.Path,
-                        probeResult.MediaStreams,
-                        probeResult.Size,
-                        probeResult.RunTimeTicks,
-                        probeResult.Container,
-                        probeResult.TotalBitrate,
-                        probeResult.Width,
-                        probeResult.Height,
-                        cancellationToken).ConfigureAwait(false);
-                }
+                // 缓存未命中，执行探测并保存到缓存
+                await ProbeAndCacheAsync(item, cancellationToken).ConfigureAwait(false);
             }
 
             var afterStreams = _mediaInfoService.GetItemMediaStreams(item);
@@ -333,27 +403,12 @@ namespace StrmTool
                     return;
                 }
 
-                if (_config.EnableMediaInfoCache && !_config.ForceRefreshIgnoreCache && _mediaCache.TryGetCachedMediaStreams(item.Path, out var cachedStreams))
+                // 使用提取的通用方法处理缓存和探测
+                bool loadedFromCache = TryLoadFromCache(item, cancellationToken);
+
+                if (!loadedFromCache)
                 {
-                    _mediaInfoService.SaveMediaStreams(item.Id, cachedStreams, cancellationToken);
-                    _logger.LogInformation("StrmTool - Auto-extract: {Name} using cached media info", fileName);
-                }
-                else
-                {
-                    var probeResult = await _mediaInfoService.ProbeMediaStreamsAsync(item, cancellationToken).ConfigureAwait(false);
-                    if (_config.EnableMediaInfoCache && probeResult.Success)
-                    {
-                        await _mediaCache.SaveFullCacheAsync(
-                            item.Path,
-                            probeResult.MediaStreams,
-                            probeResult.Size,
-                            probeResult.RunTimeTicks,
-                            probeResult.Container,
-                            probeResult.TotalBitrate,
-                            probeResult.Width,
-                            probeResult.Height,
-                            cancellationToken).ConfigureAwait(false);
-                    }
+                    await ProbeAndCacheAsync(item, cancellationToken).ConfigureAwait(false);
                 }
 
                 var afterStreams = _mediaInfoService.GetItemMediaStreams(item);

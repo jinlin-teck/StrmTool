@@ -19,17 +19,17 @@ namespace StrmTool
         private readonly ILogger<Plugin> _logger;
 
         public Plugin(
-            IApplicationPaths applicationPaths, 
+            IApplicationPaths applicationPaths,
             IXmlSerializer xmlSerializer,
             ILocalizationManager localizationManager,
-            ILogger<Plugin> logger) 
+            ILogger<Plugin> logger)
             : base(applicationPaths, xmlSerializer)
         {
             Instance = this;
             _localizationManager = localizationManager;
             _logger = logger;
             _customLocalization = new LocalizationManager(logger, localizationManager, applicationPaths);
-            
+
             // 打印插件配置
             LogConfiguration();
         }

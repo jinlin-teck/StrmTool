@@ -167,7 +167,7 @@ namespace StrmTool
                 }
             }
 
-            _logger.LogInformation("StrmTool - Loaded translations for {0} cultures: {1}", 
+            _logger.LogInformation("StrmTool - Loaded translations for {0} cultures: {1}",
                 _translations.Count, string.Join(", ", _translations.Keys));
 
             if (!_translations.ContainsKey(_defaultCulture))

@@ -15,7 +15,7 @@ namespace StrmTool
     {
         private readonly ILogger _logger;
         private const string CacheFileSuffix = ".strmtool.json";
-        
+
         private static readonly JsonSerializerOptions JsonOptions = new()
         {
             Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
@@ -35,13 +35,75 @@ namespace StrmTool
         {
             if (string.IsNullOrWhiteSpace(strmPath))
                 return null;
-            
+
+            // 路径遍历防护：检查非法字符和路径遍历模式
+            if (ContainsPathTraversal(strmPath))
+            {
+                return null;
+            }
+
+            // 确保路径是绝对路径
+            if (!Path.IsPathRooted(strmPath))
+            {
+                return null;
+            }
+
             var directory = Path.GetDirectoryName(strmPath);
             if (string.IsNullOrWhiteSpace(directory))
-                directory = Directory.GetCurrentDirectory();
-                
+                return null;
+
+            // 确保目录存在且合法
+            if (!Directory.Exists(directory))
+            {
+                return null;
+            }
+
             var fileName = Path.GetFileNameWithoutExtension(strmPath) + CacheFileSuffix;
-            return Path.Combine(directory, fileName);
+            var cachePath = Path.Combine(directory, fileName);
+
+            // 最终验证生成的缓存路径是否仍在合法目录下
+            var cacheDirectory = Path.GetDirectoryName(cachePath);
+            if (!string.Equals(directory, cacheDirectory, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            return cachePath;
+        }
+
+        /// <summary>
+        /// 检查路径是否包含路径遍历攻击模式
+        /// </summary>
+        private static bool ContainsPathTraversal(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+                return false;
+
+            // 检查常见的路径遍历模式
+            var normalized = path.Replace('/', '\\');
+
+            // 检查 .. 路径遍历
+            if (normalized.Contains("..\\") || normalized.Contains("\\.."))
+            {
+                return true;
+            }
+
+            // 检查空字符
+            if (path.Contains('\0'))
+            {
+                return true;
+            }
+
+            // 检查其他危险字符
+            foreach (char c in path)
+            {
+                if (c < 32 && c != '\t' && c != '\n' && c != '\r')
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>

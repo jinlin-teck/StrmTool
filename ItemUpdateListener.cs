@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -19,6 +20,7 @@ namespace StrmTool
         private readonly IMediaStreamRepository _mediaStreamRepository;
         private readonly MediaInfoCache _mediaCache;
         private readonly ConcurrentDictionary<Guid, byte> _restoringItems;
+        private readonly ConcurrentBag<Task> _runningTasks;
         private PluginConfiguration _config;
         private volatile bool _isDisposed = false;
 
@@ -33,6 +35,7 @@ namespace StrmTool
             _mediaStreamRepository = mediaStreamRepository;
             _mediaCache = new MediaInfoCache(logger);
             _restoringItems = new ConcurrentDictionary<Guid, byte>();
+            _runningTasks = new ConcurrentBag<Task>();
             _config = config;
 
             // 订阅Item更新事件
@@ -93,21 +96,33 @@ namespace StrmTool
                     return;
                 }
 
-                // 检查是否正在恢复中，防止竞态条件
-                if (_restoringItems.ContainsKey(item.Id))
+                // 原子性地检查并标记为正在恢复，防止竞态条件
+                if (!_restoringItems.TryAdd(item.Id, 0))
                 {
                     _logger.LogDebug("StrmTool - Item {Name} already being restored, skipping", fileName);
                     return;
                 }
 
                 // 需要在后台线程执行恢复操作
-                _ = Task.Run(async () =>
+                var task = Task.Run(async () =>
                 {
-                    // 标记为正在恢复
-                    _restoringItems.TryAdd(item.Id, 0);
                     try
                     {
-                        await RestoreItemMetadataAsync(item, cacheData, CancellationToken.None).ConfigureAwait(false);
+                        using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+
+                        // 重新获取最新 item，避免使用可能已过时的对象
+                        var latestItem = _libraryManager.GetItemById(item.Id);
+                        if (latestItem == null)
+                        {
+                            _logger.LogWarning("StrmTool - Item {Name} not found in library, skipping restore", fileName);
+                            return;
+                        }
+
+                        await RestoreItemMetadataAsync(latestItem, cacheData, cts.Token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        _logger.LogDebug("StrmTool - Restore operation cancelled for {Name}", fileName);
                     }
                     catch (Exception ex)
                     {
@@ -115,10 +130,10 @@ namespace StrmTool
                     }
                     finally
                     {
-                        // 移除恢复标记
                         _restoringItems.TryRemove(item.Id, out _);
                     }
                 });
+                _runningTasks.Add(task);
             }
             catch (Exception ex)
             {
@@ -173,6 +188,20 @@ namespace StrmTool
             }
             catch (ObjectDisposedException)
             {
+            }
+
+            // 等待所有后台任务完成（最多等待30秒）
+            try
+            {
+                var allTasks = _runningTasks.ToArray();
+                if (allTasks.Length > 0)
+                {
+                    Task.WaitAll(allTasks, TimeSpan.FromSeconds(30));
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "StrmTool - Error waiting for background tasks to complete");
             }
 
             _logger.LogInformation("StrmTool - Item update listener disposed");

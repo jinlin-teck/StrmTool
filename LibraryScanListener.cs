@@ -63,7 +63,7 @@ namespace StrmTool
                     // 再次检查是否已释放，防止竞态条件
                     if (_isDisposed)
                         return;
-                    
+
                     // 使用实际文件名而不是 item.Name，因为 item.Name 可能还没有完全解析
                     var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
                     _logger.LogInformation("StrmTool - New strm file detected: {Name} ({Path})", fileName, item.Path);

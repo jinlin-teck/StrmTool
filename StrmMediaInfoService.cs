@@ -279,8 +279,8 @@ namespace StrmTool
                     // 保存媒体流信息
                     _mediaStreamRepository.SaveMediaStreams(item.Id, mediaInfo.MediaStreams, cancellationToken);
 
-                    // 同时持久化 item 属性修改
-                    await SaveItemAsync(item, cancellationToken).ConfigureAwait(false);
+                    // 同时持久化 item 属性修改（添加重试机制确保数据一致性）
+                    await SaveItemWithRetryAsync(item, cancellationToken).ConfigureAwait(false);
 
                     // 填充返回结果
                     result.MediaStreams = mediaInfo.MediaStreams.ToList();
@@ -347,16 +347,9 @@ namespace StrmTool
 
                 return string.Empty;
             }
-            catch (FileNotFoundException)
-            {
-                return string.Empty;
-            }
-            catch (DirectoryNotFoundException)
-            {
-                return string.Empty;
-            }
             catch (IOException)
             {
+                // 包含 FileNotFoundException, DirectoryNotFoundException 等
                 return string.Empty;
             }
             catch (UnauthorizedAccessException)
@@ -365,17 +358,31 @@ namespace StrmTool
             }
         }
 
-        private async Task SaveItemAsync(BaseItem item, CancellationToken cancellationToken)
+        private async Task SaveItemWithRetryAsync(BaseItem item, CancellationToken cancellationToken)
         {
-            try
+            const int maxRetries = 3;
+            Exception lastException = null;
+            for (int i = 0; i < maxRetries; i++)
             {
-                await item.UpdateToRepositoryAsync(ItemUpdateType.MetadataImport, cancellationToken).ConfigureAwait(false);
-                _logger.LogDebug("StrmTool - Successfully saved item changes via UpdateToRepositoryAsync");
+                try
+                {
+                    await item.UpdateToRepositoryAsync(ItemUpdateType.MetadataImport, cancellationToken).ConfigureAwait(false);
+                    _logger.LogDebug("StrmTool - Successfully saved item changes via UpdateToRepositoryAsync");
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    lastException = ex;
+                    if (i < maxRetries - 1)
+                    {
+                        _logger.LogWarning(ex, "StrmTool - Retry {Retry} saving item changes for {Name}", i + 1, item.Name);
+                        await Task.Delay(500 * (i + 1), cancellationToken).ConfigureAwait(false);
+                    }
+                }
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "StrmTool - Error saving item changes");
-            }
+
+            // 所有重试都失败，记录错误
+            _logger.LogError(lastException, "StrmTool - Failed to save item changes after {MaxRetries} attempts for {Name}", maxRetries, item.Name);
         }
     }
 }
