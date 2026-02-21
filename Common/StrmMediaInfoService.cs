@@ -129,7 +129,9 @@ namespace StrmTool.Common
         {
             try
             {
-                foreach (var line in File.ReadLines(strmFilePath))
+                using var stream = File.OpenText(strmFilePath);
+                string? line;
+                while ((line = stream.ReadLine()) != null)
                 {
                     var sourcePath = line.Trim();
                     if (!string.IsNullOrWhiteSpace(sourcePath))

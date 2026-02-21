@@ -44,7 +44,7 @@ namespace StrmTool.Common
         public async Task ExportAllAsync(IProgress<double> progress, CancellationToken cancellationToken)
         {
             var allItems = MediaInfoHelper.GetAllStrmFiles(_libraryManager);
-            LogHelper.Info(_logger, $"found {allItems.Count} STRM files");
+            LogHelper.Info(_logger, $"Found {allItems.Count} STRM files");
 
             var validItems = MediaInfoHelper.GetStrmFilesWithCompleteMediaInfo(_libraryManager).ToArray();
 
@@ -53,7 +53,7 @@ namespace StrmTool.Common
             int skipped = 0;
             int exported = 0;
 
-            LogHelper.Info(_logger, $"starting export of {total} valid STRM files...");
+            LogHelper.Info(_logger, $"Starting export of {total} valid STRM files...");
 
             foreach (var item in validItems)
             {
@@ -66,25 +66,25 @@ namespace StrmTool.Common
                     if (File.Exists(filePath))
                     {
                         skipped++;
-                        LogHelper.Debug(_logger, $"skipped {item.Name}, JSON already exists: {filePath}");
+                        LogHelper.Debug(_logger, $"Skipped {item.Name}, JSON already exists: {filePath}");
                     }
                     else
                     {
                         await ExportItemAsync(item, cancellationToken);
-                        LogHelper.Info(_logger, $"successfully exported {item.Name} to: {filePath}");
+                        LogHelper.Info(_logger, $"Successfully exported {item.Name} to: {filePath}");
                         exported++;
                     }
                 }
                 catch (Exception ex)
                 {
-                    LogHelper.ErrorException(_logger, $"error exporting {item.Name}", ex);
+                    LogHelper.ErrorException(_logger, $"Error exporting {item.Name}", ex);
                 }
 
                 current++;
                 progress?.Report(current * 100.0 / total);
             }
 
-            LogHelper.Info(_logger, $"export completed. Skipped {skipped} existing JSON files, saved {exported} new files.");
+            LogHelper.Info(_logger, $"Export completed. Skipped {skipped} existing JSON files, saved {exported} new files.");
         }
 
         /// <summary>
@@ -99,11 +99,11 @@ namespace StrmTool.Common
             {
                 var mediaSourcesWithChapters = await PrepareMediaSourcesForExportAsync(item, cancellationToken);
                 await WriteMediaInfoToFileAsync(item, mediaSourcesWithChapters, cancellationToken);
-                LogHelper.Debug(_logger, $"exported {item.Name} → {GetMediaInfoJsonPath(item)}");
+                LogHelper.Debug(_logger, $"Exported {item.Name} → {GetMediaInfoJsonPath(item)}");
             }
             catch (Exception ex)
             {
-                LogHelper.ErrorException(_logger, $"error exporting media info for {item.Name}", ex);
+                LogHelper.ErrorException(_logger, $"Error exporting media info for {item.Name}", ex);
             }
         }
 
@@ -229,7 +229,7 @@ namespace StrmTool.Common
         public async Task RestoreAllAsync(IProgress<double> progress, CancellationToken cancellationToken)
         {
             var strmItems = MediaInfoHelper.GetStrmFilesNeedingRestoreWithJson(_libraryManager, this);
-            LogHelper.Info(_logger, $"found {strmItems.Count} STRM files requiring restore with JSON");
+            LogHelper.Info(_logger, $"Found {strmItems.Count} STRM files requiring restore with JSON");
 
             int total = strmItems.Count;
             int current = 0;
@@ -245,14 +245,14 @@ namespace StrmTool.Common
                 }
                 catch (Exception ex)
                 {
-                    LogHelper.ErrorException(_logger, $"error restoring {item.Name}", ex);
+                    LogHelper.ErrorException(_logger, $"Error restoring {item.Name}", ex);
                 }
 
                 current++;
                 progress?.Report(current * 100.0 / total);
             }
 
-            LogHelper.Info(_logger, "restore operation completed.");
+            LogHelper.Info(_logger, "Restore operation completed.");
         }
 
         /// <summary>
@@ -262,7 +262,7 @@ namespace StrmTool.Common
         {
             try
             {
-                LogHelper.Debug(_logger, $"restoring media item: {item.Name} (Path: {item.Path})");
+                LogHelper.Debug(_logger, $"Restoring media item: {item.Name} (Path: {item.Path})");
 
                 var jsonFilePath = GetMediaInfoJsonPath(item);
                 var mediaSourceWithChapters = await LoadAndValidateMediaSourceAsync(jsonFilePath, cancellationToken);
@@ -271,11 +271,11 @@ namespace StrmTool.Common
                     return;
 
                 await RestoreMediaDataAsync(item, mediaSourceWithChapters, jsonFilePath, cancellationToken);
-                LogHelper.Info(_logger, $"restore completed: {item.Name} ← {jsonFilePath}");
+                LogHelper.Info(_logger, $"Restore completed: {item.Name} ← {jsonFilePath}");
             }
             catch (Exception ex)
             {
-                LogHelper.ErrorException(_logger, $"error restoring media information for {item.Name}", ex);
+                LogHelper.ErrorException(_logger, $"Error restoring media information for {item.Name}", ex);
             }
         }
 
@@ -364,15 +364,26 @@ namespace StrmTool.Common
                     
                     if (File.Exists(imagePath))
                     {
-                        try { File.Delete(imagePath); } catch { }
+                        try
+                        {
+                            File.Delete(imagePath);
+                        }
+                        catch (IOException ioEx)
+                        {
+                            LogHelper.Debug(_logger, $"Could not delete existing image: {ioEx.Message}");
+                        }
+                        catch (UnauthorizedAccessException authEx)
+                        {
+                            LogHelper.Warn(_logger, $"Permission denied when deleting image: {authEx.Message}");
+                        }
                     }
                     
                     await File.WriteAllBytesAsync(imagePath, imageBytes);
-                    LogHelper.Debug(_logger, $"restored embedded image for audio file {item.Name}");
+                    LogHelper.Debug(_logger, $"Restored embedded image for audio file {item.Name}");
                 }
                 catch (Exception ex)
                 {
-                    LogHelper.ErrorException(_logger, "error restoring audio embedded image", ex);
+                    LogHelper.ErrorException(_logger, "Error restoring audio embedded image", ex);
                 }
             }
         }

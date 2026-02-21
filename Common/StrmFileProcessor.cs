@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -6,6 +7,7 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Persistence;
+using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Serialization;
 
@@ -33,6 +35,7 @@ namespace StrmTool.Common
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _libraryManager = libraryManager ?? throw new ArgumentNullException(nameof(libraryManager));
             _itemRepository = itemRepository ?? throw new ArgumentNullException(nameof(itemRepository));
+            if (mediaProbeManager == null) throw new ArgumentNullException(nameof(mediaProbeManager));
             if (jsonSerializer == null) throw new ArgumentNullException(nameof(jsonSerializer));
 
             _mediaInfoManager = mediaInfoManager ?? new MediaInfoManager(logger, libraryManager, itemRepository, jsonSerializer);
@@ -76,9 +79,9 @@ namespace StrmTool.Common
 
             await _mediaInfoManager.RestoreItemAsync(item, cancellationToken);
 
-            var streams = item.GetMediaStreams() ?? new System.Collections.Generic.List<MediaBrowser.Model.Entities.MediaStream>();
-            bool hasVideo = streams.Any(s => s.Type == MediaBrowser.Model.Entities.MediaStreamType.Video);
-            bool hasAudio = streams.Any(s => s.Type == MediaBrowser.Model.Entities.MediaStreamType.Audio);
+            var streams = item.GetMediaStreams() ?? new List<MediaStream>();
+            bool hasVideo = streams.Any(s => s.Type == MediaStreamType.Video);
+            bool hasAudio = streams.Any(s => s.Type == MediaStreamType.Audio);
 
             LogHelper.Debug(_logger, $"{item.Name}: Restored from JSON. Video:{hasVideo}, Audio:{hasAudio}");
             return ProcessResult.RestoredFromJson;
@@ -93,9 +96,9 @@ namespace StrmTool.Common
 
             var streams = await _mediaInfoService.ProbeAndSaveMediaStreamsAsync(item, cancellationToken);
 
-            var streamList = item.GetMediaStreams() ?? new System.Collections.Generic.List<MediaBrowser.Model.Entities.MediaStream>();
-            bool hasVideo = streamList.Any(s => s.Type == MediaBrowser.Model.Entities.MediaStreamType.Video);
-            bool hasAudio = streamList.Any(s => s.Type == MediaBrowser.Model.Entities.MediaStreamType.Audio);
+            var streamList = item.GetMediaStreams() ?? new List<MediaStream>();
+            bool hasVideo = streamList.Any(s => s.Type == MediaStreamType.Video);
+            bool hasAudio = streamList.Any(s => s.Type == MediaStreamType.Audio);
 
             LogHelper.Info(_logger, $"{item.Name}: Probed media info. Streams {beforeStreams.Count}→{streams.Count}. Video:{hasVideo}, Audio:{hasAudio}");
 
