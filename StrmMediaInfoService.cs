@@ -26,9 +26,6 @@ namespace StrmTool
         public long Size { get; set; }
         public long? RunTimeTicks { get; set; }
         public string Container { get; set; }
-        public int TotalBitrate { get; set; }
-        public int Width { get; set; }
-        public int Height { get; set; }
         public bool Success => MediaStreams != null && MediaStreams.Count > 0;
     }
 
@@ -87,7 +84,7 @@ namespace StrmTool
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "StrmTool - Error enumerating files in {Directory}", current);
+                        _logger.LogWarning(ex, "Error enumerating files in {Directory}", current);
                     }
 
                     foreach (var strmPath in files)
@@ -106,12 +103,12 @@ namespace StrmTool
                             }
                             else
                             {
-                                _logger.LogDebug("StrmTool - Could not find library item for path: {Path}", strmPath);
+                                _logger.LogDebug("Could not find library item for path: {Path}", strmPath);
                             }
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogDebug(ex, "StrmTool - Error processing file {Path}", strmPath);
+                            _logger.LogDebug(ex, "Error processing file {Path}", strmPath);
                         }
                     }
 
@@ -122,7 +119,7 @@ namespace StrmTool
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "StrmTool - Error enumerating directories in {Directory}", current);
+                        _logger.LogWarning(ex, "Error enumerating directories in {Directory}", current);
                     }
 
                     foreach (var sub in subDirs)
@@ -137,7 +134,7 @@ namespace StrmTool
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "StrmTool - Error scanning directory {Directory}", current);
+                    _logger.LogError(ex, "Error scanning directory {Directory}", current);
                 }
             }
 
@@ -170,7 +167,7 @@ namespace StrmTool
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "StrmTool - Error scanning folder {Folder}", rootFolder);
+                    _logger.LogError(ex, "Error scanning folder {Folder}", rootFolder);
                 }
             }
 
@@ -204,7 +201,7 @@ namespace StrmTool
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "StrmTool - Error getting media streams for {ItemType}", item.GetType().Name);
+                _logger.LogError(ex, "Error getting media streams for {ItemType}", item.GetType().Name);
                 return new List<MediaStream>();
             }
         }
@@ -239,7 +236,7 @@ namespace StrmTool
                 var strmContent = ReadStrmSourcePath(item.Path);
                 if (string.IsNullOrWhiteSpace(strmContent))
                 {
-                    _logger.LogWarning("StrmTool - STRM file is empty: {Path}", item.Path);
+                    _logger.LogWarning("STRM file is empty: {Path}", item.Path);
                     return result;
                 }
 
@@ -259,49 +256,27 @@ namespace StrmTool
 
                 if (mediaInfo?.MediaStreams != null && mediaInfo.MediaStreams.Count > 0)
                 {
-                    // 先更新 item 属性，这些修改会随 UpdateToRepositoryAsync 一起持久化
-                    item.Size = mediaInfo.Size.GetValueOrDefault();
-                    item.RunTimeTicks = mediaInfo.RunTimeTicks;
-                    item.Container = mediaInfo.Container;
-                    item.TotalBitrate = mediaInfo.Bitrate.GetValueOrDefault();
-
-                    var videoStream = mediaInfo.MediaStreams
-                        .Where(s => s.Type == MediaStreamType.Video && s.Width.HasValue && s.Height.HasValue)
-                        .OrderByDescending(s => (long)(s.Width ?? 0) * (s.Height ?? 0))
-                        .FirstOrDefault();
-
-                    if (videoStream != null)
-                    {
-                        item.Width = videoStream.Width ?? 0;
-                        item.Height = videoStream.Height ?? 0;
-                    }
-
-                    // 保存媒体流信息
+                    // 保存媒体流信息（不保存 Item 元数据，避免与 Jellyfin 的元数据重置产生竞态条件）
+                    // Item 元数据会在 ItemUpdateListener 中从缓存恢复
                     _mediaStreamRepository.SaveMediaStreams(item.Id, mediaInfo.MediaStreams, cancellationToken);
 
-                    // 同时持久化 item 属性修改（添加重试机制确保数据一致性）
-                    await SaveItemWithRetryAsync(item, cancellationToken).ConfigureAwait(false);
-
-                    // 填充返回结果
+                    // 填充返回结果（包含需要的元数据，供缓存使用）
                     result.MediaStreams = mediaInfo.MediaStreams.ToList();
                     result.Size = mediaInfo.Size.GetValueOrDefault();
                     result.RunTimeTicks = mediaInfo.RunTimeTicks;
                     result.Container = mediaInfo.Container;
-                    result.TotalBitrate = mediaInfo.Bitrate.GetValueOrDefault();
-                    result.Width = videoStream?.Width ?? 0;
-                    result.Height = videoStream?.Height ?? 0;
 
-                    _logger.LogDebug("StrmTool - Successfully saved {Count} media streams and updated item properties for {Name}",
+                    _logger.LogDebug("Successfully saved {Count} media streams for {Name} (item metadata will be restored later via cache)",
                         mediaInfo.MediaStreams.Count, fileName);
                     return result;
                 }
 
-                _logger.LogDebug("StrmTool - No media streams found for {Name}", fileName);
+                _logger.LogDebug("No media streams found for {Name}", fileName);
                 return result;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "StrmTool - Error probing STRM content for {Name}", fileName);
+                _logger.LogError(ex, "Error probing STRM content for {Name}", fileName);
                 return result;
             }
         }
@@ -347,42 +322,13 @@ namespace StrmTool
 
                 return string.Empty;
             }
-            catch (IOException)
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is System.Security.SecurityException)
             {
-                // 包含 FileNotFoundException, DirectoryNotFoundException 等
-                return string.Empty;
-            }
-            catch (UnauthorizedAccessException)
-            {
+                // 捕获所有常见的文件访问异常
                 return string.Empty;
             }
         }
 
-        private async Task SaveItemWithRetryAsync(BaseItem item, CancellationToken cancellationToken)
-        {
-            const int maxRetries = 3;
-            Exception lastException = null;
-            for (int i = 0; i < maxRetries; i++)
-            {
-                try
-                {
-                    await item.UpdateToRepositoryAsync(ItemUpdateType.MetadataImport, cancellationToken).ConfigureAwait(false);
-                    _logger.LogDebug("StrmTool - Successfully saved item changes via UpdateToRepositoryAsync");
-                    return;
-                }
-                catch (Exception ex)
-                {
-                    lastException = ex;
-                    if (i < maxRetries - 1)
-                    {
-                        _logger.LogWarning(ex, "StrmTool - Retry {Retry} saving item changes for {Name}", i + 1, item.Name);
-                        await Task.Delay(500 * (i + 1), cancellationToken).ConfigureAwait(false);
-                    }
-                }
-            }
 
-            // 所有重试都失败，记录错误
-            _logger.LogError(lastException, "StrmTool - Failed to save item changes after {MaxRetries} attempts for {Name}", maxRetries, item.Name);
-        }
     }
 }

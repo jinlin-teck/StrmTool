@@ -30,7 +30,7 @@ namespace StrmTool
 
             // 启动时读取一次配置，之后保持不变（重启生效）
             _currentCulture = DetectSystemCulture();
-            _logger.LogInformation("StrmTool - Initial culture detected as: {0}", _currentCulture);
+            _logger.LogInformation("Initial culture detected as: {Culture}", _currentCulture);
         }
 
         /// <summary>
@@ -76,7 +76,7 @@ namespace StrmTool
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "StrmTool - Failed to detect system language");
+                _logger.LogDebug(ex, "Failed to detect system language");
             }
 
             // 回退到默认语言
@@ -98,7 +98,7 @@ namespace StrmTool
                 var configPath = Path.Combine(_applicationPaths.ConfigurationDirectoryPath, "system.xml");
                 if (!File.Exists(configPath))
                 {
-                    _logger.LogInformation("StrmTool - Jellyfin config file not found at {0}", configPath);
+                    _logger.LogInformation("Jellyfin config file not found at {Path}", configPath);
                     return null;
                 }
 
@@ -107,13 +107,13 @@ namespace StrmTool
                 if (uiCultureElement != null && !string.IsNullOrEmpty(uiCultureElement.Value))
                 {
                     var culture = uiCultureElement.Value.Trim();
-                    _logger.LogDebug("StrmTool - Loaded UICulture from config: {0}", culture);
+                    _logger.LogDebug("Loaded UICulture from config: {Culture}", culture);
                     return culture;
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "StrmTool - Failed to read Jellyfin config file");
+                _logger.LogDebug(ex, "Failed to read Jellyfin config file");
             }
 
             return null;
@@ -124,10 +124,10 @@ namespace StrmTool
             var assembly = Assembly.GetExecutingAssembly();
             var resourceNames = assembly.GetManifestResourceNames();
 
-            _logger.LogDebug("StrmTool - Found {0} embedded resources", resourceNames.Length);
+            _logger.LogDebug("Found {Count} embedded resources", resourceNames.Length);
             foreach (var name in resourceNames)
             {
-                _logger.LogDebug("StrmTool - Resource: {0}", name);
+                _logger.LogDebug("Resource: {Name}", name);
             }
 
             foreach (var resourceName in resourceNames)
@@ -140,7 +140,7 @@ namespace StrmTool
                         var parts = resourceName.Split('.');
                         if (parts.Length < 3)
                         {
-                            _logger.LogWarning("StrmTool - Invalid resource name format: {0}", resourceName);
+                            _logger.LogWarning("Invalid resource name format: {Name}", resourceName);
                             continue;
                         }
                         var cultureName = parts[^2];
@@ -155,24 +155,24 @@ namespace StrmTool
                             if (translations != null)
                             {
                                 _translations[cultureName] = translations;
-                                _logger.LogDebug("StrmTool - Loaded {0} translations for culture {1}",
+                                _logger.LogDebug("Loaded {Count} translations for culture {Culture}",
                                     translations.Count, cultureName);
                             }
                         }
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "StrmTool - Failed to load translation file: {0}", resourceName);
+                        _logger.LogError(ex, "Failed to load translation file: {Name}", resourceName);
                     }
                 }
             }
 
-            _logger.LogInformation("StrmTool - Loaded translations for {0} cultures: {1}",
+            _logger.LogInformation("Loaded translations for {Count} cultures: {Cultures}",
                 _translations.Count, string.Join(", ", _translations.Keys));
 
             if (!_translations.ContainsKey(_defaultCulture))
             {
-                _logger.LogWarning("StrmTool - Default culture '{0}' translations not found", _defaultCulture);
+                _logger.LogWarning("Default culture '{Culture}' translations not found", _defaultCulture);
             }
         }
 
@@ -200,7 +200,7 @@ namespace StrmTool
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "StrmTool - Failed to format translated string '{0}' with args {1}",
+                        _logger.LogError(ex, "Failed to format translated string '{Translation}' with args {Args}",
                             translation, string.Join(", ", args));
                     }
                 }
@@ -221,7 +221,7 @@ namespace StrmTool
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "StrmTool - Failed to format translated string '{0}' with args {1}",
+                        _logger.LogError(ex, "Failed to format translated string '{Translation}' with args {Args}",
                             languageTranslation, string.Join(", ", args));
                     }
                 }
@@ -240,7 +240,7 @@ namespace StrmTool
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "StrmTool - Failed to format translated string '{0}' with args {1}",
+                        _logger.LogError(ex, "Failed to format translated string '{Translation}' with args {Args}",
                             defaultTranslation, string.Join(", ", args));
                     }
                 }
@@ -248,7 +248,7 @@ namespace StrmTool
             }
 
             // 未找到翻译，返回原 key
-            _logger.LogDebug("StrmTool - Translation not found for key '{0}' in culture '{1}'", key, actualCulture);
+            _logger.LogDebug("Translation not found for key '{Key}' in culture '{Culture}'", key, actualCulture);
             return key;
         }
     }

@@ -39,17 +39,17 @@ namespace StrmTool
             try
             {
                 var config = Configuration;
-                _logger.LogInformation("StrmTool - Plugin configuration:");
-                _logger.LogInformation("StrmTool -   EnableAutoExtract: {Value}", config.EnableAutoExtract);
-                _logger.LogInformation("StrmTool -   EnableMediaInfoCache: {Value}", config.EnableMediaInfoCache);
-                _logger.LogInformation("StrmTool -   RefreshDelayMs: {Value}", config.RefreshDelayMs);
-                _logger.LogInformation("StrmTool -   MaxConcurrentExtract: {Value}", config.MaxConcurrentExtract);
-                _logger.LogInformation("StrmTool -   ForceRefreshIgnoreExisting: {Value}", config.ForceRefreshIgnoreExisting);
-                _logger.LogInformation("StrmTool -   ForceRefreshIgnoreCache: {Value}", config.ForceRefreshIgnoreCache);
+                _logger.LogInformation("Plugin configuration:");
+                _logger.LogInformation("  EnableAutoExtract: {Value}", config.EnableAutoExtract);
+                _logger.LogInformation("  EnableMediaInfoCache: {Value}", config.EnableMediaInfoCache);
+                _logger.LogInformation("  RefreshDelayMs: {Value}", config.RefreshDelayMs);
+                _logger.LogInformation("  MaxConcurrentExtract: {Value}", config.MaxConcurrentExtract);
+                _logger.LogInformation("  ForceRefreshIgnoreExisting: {Value}", config.ForceRefreshIgnoreExisting);
+                _logger.LogInformation("  ForceRefreshIgnoreCache: {Value}", config.ForceRefreshIgnoreCache);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "StrmTool - Failed to log configuration");
+                _logger.LogError(ex, "Failed to log configuration");
             }
         }
 
@@ -108,7 +108,7 @@ namespace StrmTool
                     }
                     catch (FormatException ex)
                     {
-                        _logger.LogError(ex, "StrmTool - Invalid format string for key: {Key}", key);
+                        _logger.LogError(ex, "Invalid format string for key: {Key}", key);
                         return translation;  // 返回未格式化的翻译
                     }
                 }
@@ -117,7 +117,7 @@ namespace StrmTool
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "StrmTool - Failed to get localized string: {Key}", key);
+                _logger.LogError(ex, "Failed to get localized string: {Key}", key);
                 return key;
             }
         }

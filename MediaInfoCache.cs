@@ -121,47 +121,71 @@ namespace StrmTool
         }
 
         /// <summary>
+        /// 验证缓存路径并返回（通用验证方法）
+        /// </summary>
+        private (bool valid, string cachePath) ValidateCachePath(string strmPath)
+        {
+            if (string.IsNullOrWhiteSpace(strmPath))
+            {
+                _logger.LogDebug("Invalid strm path for cache lookup");
+                return (false, null);
+            }
+
+            var cachePath = GetCachePath(strmPath);
+            if (string.IsNullOrWhiteSpace(cachePath))
+            {
+                _logger.LogDebug("Failed to get cache path for: {Path}", strmPath);
+                return (false, null);
+            }
+
+            if (!File.Exists(cachePath))
+            {
+                return (false, null);
+            }
+
+            return (true, cachePath);
+        }
+
+        /// <summary>
+        /// 验证缓存数据是否有效
+        /// </summary>
+        private bool ValidateCacheData(MediaInfoCacheData cache, bool requireMediaStreams = true)
+        {
+            if (cache?.IsValid != true)
+                return false;
+            
+            if (requireMediaStreams && cache.MediaStreams == null)
+                return false;
+
+            return true;
+        }
+
+        /// <summary>
         /// 检查并读取缓存（同步版本，保持兼容性）
         /// </summary>
         public bool TryGetCachedMediaStreams(string strmPath, out List<MediaStream> mediaStreams)
         {
             mediaStreams = null;
 
-            if (string.IsNullOrWhiteSpace(strmPath))
-            {
-                _logger.LogDebug("StrmTool - Invalid strm path for cache lookup");
+            var (valid, cachePath) = ValidateCachePath(strmPath);
+            if (!valid)
                 return false;
-            }
 
             try
             {
-                var cachePath = GetCachePath(strmPath);
-                if (string.IsNullOrWhiteSpace(cachePath))
-                {
-                    _logger.LogDebug("StrmTool - Failed to get cache path for: {Path}", strmPath);
-                    return false;
-                }
-
-                if (!File.Exists(cachePath))
-                {
-                    return false;
-                }
-
                 var json = File.ReadAllText(cachePath);
                 var cache = JsonSerializer.Deserialize<MediaInfoCacheData>(json, JsonOptions);
 
-                if (cache?.IsValid != true || cache.MediaStreams == null)
-                {
+                if (!ValidateCacheData(cache))
                     return false;
-                }
 
                 mediaStreams = cache.MediaStreams;
-                _logger.LogDebug("StrmTool - Loaded cached media streams from {Path}", cachePath);
+                _logger.LogDebug("Loaded cached media streams from {Path}", cachePath);
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "StrmTool - Error reading cache from {Path}", strmPath);
+                _logger.LogWarning(ex, "Error reading cache from {Path}", strmPath);
                 return false;
             }
         }
@@ -171,40 +195,24 @@ namespace StrmTool
         /// </summary>
         public async Task<(bool success, List<MediaStream> mediaStreams)> TryGetCachedMediaStreamsAsync(string strmPath, CancellationToken cancellationToken = default)
         {
-            if (string.IsNullOrWhiteSpace(strmPath))
-            {
-                _logger.LogDebug("StrmTool - Invalid strm path for cache lookup");
+            var (valid, cachePath) = ValidateCachePath(strmPath);
+            if (!valid)
                 return (false, null);
-            }
 
             try
             {
-                var cachePath = GetCachePath(strmPath);
-                if (string.IsNullOrWhiteSpace(cachePath))
-                {
-                    _logger.LogDebug("StrmTool - Failed to get cache path for: {Path}", strmPath);
-                    return (false, null);
-                }
-
-                if (!File.Exists(cachePath))
-                {
-                    return (false, null);
-                }
-
                 var json = await File.ReadAllTextAsync(cachePath, cancellationToken).ConfigureAwait(false);
                 var cache = JsonSerializer.Deserialize<MediaInfoCacheData>(json, JsonOptions);
 
-                if (cache?.IsValid != true || cache.MediaStreams == null)
-                {
+                if (!ValidateCacheData(cache))
                     return (false, null);
-                }
 
-                _logger.LogDebug("StrmTool - Loaded cached media streams from {Path}", cachePath);
+                _logger.LogDebug("Loaded cached media streams from {Path}", cachePath);
                 return (true, cache.MediaStreams);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "StrmTool - Error reading cache from {Path}", strmPath);
+                _logger.LogWarning(ex, "Error reading cache from {Path}", strmPath);
                 return (false, null);
             }
         }
@@ -249,9 +257,30 @@ namespace StrmTool
                 }
                 catch (Exception cleanupEx)
                 {
-                    _logger.LogWarning(cleanupEx, "StrmTool - Failed to cleanup temp cache file {Path}", tempPath);
+                    _logger.LogWarning(cleanupEx, "Failed to cleanup temp cache file {Path}", tempPath);
                 }
             }
+        }
+
+        /// <summary>
+        /// 验证保存缓存的前置条件
+        /// </summary>
+        private (bool valid, string cachePath) ValidateSaveCache(string strmPath)
+        {
+            if (string.IsNullOrWhiteSpace(strmPath))
+            {
+                _logger.LogDebug("Invalid strm path for cache save");
+                return (false, null);
+            }
+
+            var cachePath = GetCachePath(strmPath);
+            if (string.IsNullOrWhiteSpace(cachePath))
+            {
+                _logger.LogDebug("Failed to get cache path for: {Path}", strmPath);
+                return (false, null);
+            }
+
+            return (true, cachePath);
         }
 
         /// <summary>
@@ -261,18 +290,9 @@ namespace StrmTool
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(strmPath))
-                {
-                    _logger.LogDebug("StrmTool - Invalid strm path for cache save");
+                var (valid, cachePath) = ValidateSaveCache(strmPath);
+                if (!valid)
                     return;
-                }
-
-                var cachePath = GetCachePath(strmPath);
-                if (string.IsNullOrWhiteSpace(cachePath))
-                {
-                    _logger.LogDebug("StrmTool - Failed to get cache path for: {Path}", strmPath);
-                    return;
-                }
 
                 var cache = new MediaInfoCacheData
                 {
@@ -285,11 +305,11 @@ namespace StrmTool
                 var json = JsonSerializer.Serialize(cache, JsonOptions);
                 await WriteFileAtomicallyAsync(cachePath, json, cancellationToken).ConfigureAwait(false);
 
-                _logger.LogDebug("StrmTool - Saved cache to {Path}", cachePath);
+                _logger.LogDebug("Saved cache to {Path}", cachePath);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "StrmTool - Error saving cache to {Path}", strmPath);
+                _logger.LogError(ex, "Error saving cache to {Path}", strmPath);
             }
         }
 
@@ -302,25 +322,13 @@ namespace StrmTool
             long size,
             long? runTimeTicks,
             string container,
-            int totalBitrate,
-            int width,
-            int height,
             CancellationToken cancellationToken = default)
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(strmPath))
-                {
-                    _logger.LogDebug("StrmTool - Invalid strm path for full cache save");
+                var (valid, cachePath) = ValidateSaveCache(strmPath);
+                if (!valid)
                     return;
-                }
-
-                var cachePath = GetCachePath(strmPath);
-                if (string.IsNullOrWhiteSpace(cachePath))
-                {
-                    _logger.LogDebug("StrmTool - Failed to get cache path for: {Path}", strmPath);
-                    return;
-                }
 
                 var cache = new MediaInfoCacheData
                 {
@@ -330,20 +338,17 @@ namespace StrmTool
                     IsValid = true,
                     Size = size,
                     RunTimeTicks = runTimeTicks,
-                    Container = container,
-                    TotalBitrate = totalBitrate,
-                    Width = width,
-                    Height = height
+                    Container = container
                 };
 
                 var json = JsonSerializer.Serialize(cache, JsonOptions);
                 await WriteFileAtomicallyAsync(cachePath, json, cancellationToken).ConfigureAwait(false);
 
-                _logger.LogDebug("StrmTool - Saved full cache (Size={Size}) to {Path}", size, cachePath);
+                _logger.LogDebug("Saved full cache (Size={Size}) to {Path}", size, cachePath);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "StrmTool - Error saving full cache to {Path}", strmPath);
+                _logger.LogError(ex, "Error saving full cache to {Path}", strmPath);
             }
         }
 
@@ -354,41 +359,25 @@ namespace StrmTool
         {
             cacheData = null;
 
-            if (string.IsNullOrWhiteSpace(strmPath))
-            {
-                _logger.LogDebug("StrmTool - Invalid strm path for full cache lookup");
+            var (valid, cachePath) = ValidateCachePath(strmPath);
+            if (!valid)
                 return false;
-            }
 
             try
             {
-                var cachePath = GetCachePath(strmPath);
-                if (string.IsNullOrWhiteSpace(cachePath))
-                {
-                    _logger.LogDebug("StrmTool - Failed to get cache path for: {Path}", strmPath);
-                    return false;
-                }
-
-                if (!File.Exists(cachePath))
-                {
-                    return false;
-                }
-
                 var json = File.ReadAllText(cachePath);
                 var cache = JsonSerializer.Deserialize<MediaInfoCacheData>(json, JsonOptions);
 
-                if (cache?.IsValid != true)
-                {
+                if (!ValidateCacheData(cache, requireMediaStreams: false))
                     return false;
-                }
 
                 cacheData = cache;
-                _logger.LogDebug("StrmTool - Loaded full cache (Size={Size}) from {Path}", cache.Size, cachePath);
+                _logger.LogDebug("Loaded full cache (Size={Size}) from {Path}", cache.Size, cachePath);
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "StrmTool - Error reading full cache from {Path}", strmPath);
+                _logger.LogWarning(ex, "Error reading full cache from {Path}", strmPath);
                 return false;
             }
         }
@@ -402,26 +391,26 @@ namespace StrmTool
             {
                 if (string.IsNullOrWhiteSpace(strmPath))
                 {
-                    _logger.LogDebug("StrmTool - Invalid strm path for cache clear");
+                    _logger.LogDebug("Invalid strm path for cache clear");
                     return;
                 }
 
                 var cachePath = GetCachePath(strmPath);
                 if (string.IsNullOrWhiteSpace(cachePath))
                 {
-                    _logger.LogDebug("StrmTool - Failed to get cache path for: {Path}", strmPath);
+                    _logger.LogDebug("Failed to get cache path for: {Path}", strmPath);
                     return;
                 }
 
                 if (File.Exists(cachePath))
                 {
                     File.Delete(cachePath);
-                    _logger.LogInformation("StrmTool - Cleared cache: {Path}", cachePath);
+                    _logger.LogInformation("Cleared cache: {Path}", cachePath);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "StrmTool - Error clearing cache: {Path}", strmPath);
+                _logger.LogWarning(ex, "Error clearing cache: {Path}", strmPath);
             }
         }
 
@@ -446,28 +435,40 @@ namespace StrmTool
                         continue;
                     }
 
-                    var baseName = fileName.Remove(fileName.Length - CacheFileSuffix.Length);
+                    // 从缓存文件名反推出 strm 文件名
+                    var baseName = Path.GetFileNameWithoutExtension(fileName);
                     var strmPath = Path.Combine(Path.GetDirectoryName(jsonFile) ?? string.Empty, baseName + ".strm");
 
-                    if (File.Exists(strmPath))
+                    // 使用 GetCachePath 验证路径安全性
+                    var expectedCachePath = GetCachePath(strmPath);
+                    if (expectedCachePath == null)
                     {
-                        try
-                        {
-                            File.Delete(jsonFile);
-                            cleared++;
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "StrmTool - Error deleting cache file {Path}", jsonFile);
-                        }
+                        continue;
+                    }
+
+                    // 确保找到的 json 文件确实是对应的缓存文件
+                    if (!string.Equals(expectedCachePath, jsonFile, StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    // 安全删除缓存文件
+                    try
+                    {
+                        File.Delete(jsonFile);
+                        cleared++;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Error deleting cache file {Path}", jsonFile);
                     }
                 }
 
-                _logger.LogInformation("StrmTool - Cleared {Count} cache files in {Dir}", cleared, directoryPath);
+                _logger.LogInformation("Cleared {Count} cache files in {Dir}", cleared, directoryPath);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "StrmTool - Error clearing caches in {Dir}", directoryPath);
+                _logger.LogError(ex, "Error clearing caches in {Dir}", directoryPath);
             }
         }
     }
@@ -497,14 +498,5 @@ namespace StrmTool
 
         [JsonPropertyName("container")]
         public string Container { get; set; }
-
-        [JsonPropertyName("totalBitrate")]
-        public int TotalBitrate { get; set; }
-
-        [JsonPropertyName("width")]
-        public int Width { get; set; }
-
-        [JsonPropertyName("height")]
-        public int Height { get; set; }
     }
 }

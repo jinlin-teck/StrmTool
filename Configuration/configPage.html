@@ -140,7 +140,7 @@
                 return browserLang;
                 
             } catch (e) {
-                console.error('StrmTool - 无法获取语言设置:', e);
+                console.error('无法获取语言设置:', e);
                 return 'en'; // 默认使用英文，与后端一致
             }
         }
@@ -218,7 +218,7 @@
 
         // 页面加载时应用翻译和加载配置
         function initializePage() {
-            console.log('StrmTool - 初始化设置页面');
+            console.log('初始化设置页面');
             applyTranslations();
             loadConfig();
         }

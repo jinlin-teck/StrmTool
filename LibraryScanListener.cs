@@ -28,7 +28,7 @@ namespace StrmTool
 
             // 订阅事件
             _libraryManager.ItemAdded += OnItemAdded;
-            _logger.LogInformation("StrmTool - Library scan listener initialized");
+            _logger.LogInformation("Library scan listener initialized");
         }
 
         /// <summary>
@@ -66,7 +66,7 @@ namespace StrmTool
 
                     // 使用实际文件名而不是 item.Name，因为 item.Name 可能还没有完全解析
                     var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
-                    _logger.LogInformation("StrmTool - New strm file detected: {Name} ({Path})", fileName, item.Path);
+                    _logger.LogInformation("New strm file detected: {Name} ({Path})", fileName, item.Path);
 
                     // 新入库文件通过事件通知 ExtractTask 进行处理
                     StrmFileDetected?.Invoke(this, item);
@@ -74,7 +74,7 @@ namespace StrmTool
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "StrmTool - Error in OnItemAdded handler");
+                _logger.LogError(ex, "Error in OnItemAdded handler");
             }
         }
 
@@ -93,7 +93,7 @@ namespace StrmTool
             {
             }
 
-            _logger.LogInformation("StrmTool - Library scan listener disposed");
+            _logger.LogInformation("Library scan listener disposed");
         }
     }
 }

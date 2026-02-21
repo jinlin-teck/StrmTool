@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -17,30 +16,25 @@ namespace StrmTool
     {
         private readonly ILogger _logger;
         private readonly ILibraryManager _libraryManager;
-        private readonly IMediaStreamRepository _mediaStreamRepository;
         private readonly MediaInfoCache _mediaCache;
-        private readonly ConcurrentDictionary<Guid, byte> _restoringItems;
-        private readonly ConcurrentBag<Task> _runningTasks;
+        private readonly ConcurrentDictionary<Guid, Task> _runningTasks;
         private PluginConfiguration _config;
         private volatile bool _isDisposed = false;
 
         public ItemUpdateListener(
             ILibraryManager libraryManager,
-            IMediaStreamRepository mediaStreamRepository,
             ILogger logger,
             PluginConfiguration config)
         {
             _logger = logger;
             _libraryManager = libraryManager;
-            _mediaStreamRepository = mediaStreamRepository;
             _mediaCache = new MediaInfoCache(logger);
-            _restoringItems = new ConcurrentDictionary<Guid, byte>();
-            _runningTasks = new ConcurrentBag<Task>();
+            _runningTasks = new ConcurrentDictionary<Guid, Task>();
             _config = config;
 
             // 订阅Item更新事件
             _libraryManager.ItemUpdated += OnItemUpdated;
-            _logger.LogInformation("StrmTool - Item update listener initialized");
+            _logger.LogInformation("Item update listener initialized");
         }
 
         /// <summary>
@@ -51,6 +45,49 @@ namespace StrmTool
             if (Plugin.Instance != null)
             {
                 _config = Plugin.Instance.Configuration;
+            }
+        }
+
+        /// <summary>
+        /// 清理已完成的任务，防止内存泄漏
+        /// </summary>
+        private void CleanupCompletedTasks()
+        {
+            // 仅当任务数量超过阈值时才清理，减少开销
+            if (_runningTasks.Count <= 100)
+            {
+                return;
+            }
+
+            try
+            {
+                int removed = 0;
+                foreach (var kvp in _runningTasks)
+                {
+                    if (kvp.Value.IsCompleted)
+                    {
+                        // 观察任务异常（防止未观察到的异常）
+                        if (kvp.Value.Exception != null)
+                        {
+                            _logger.LogDebug(kvp.Value.Exception, "Observed completed task exception");
+                        }
+
+                        if (_runningTasks.TryRemove(kvp.Key, out _))
+                        {
+                            removed++;
+                        }
+                    }
+                }
+
+                if (removed > 0)
+                {
+                    _logger.LogDebug("Cleaned up {Count} completed tasks, remaining: {Remaining}",
+                        removed, _runningTasks.Count);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error cleaning up completed tasks");
             }
         }
 
@@ -97,11 +134,8 @@ namespace StrmTool
                 }
 
                 // 原子性地检查并标记为正在恢复，防止竞态条件
-                if (!_restoringItems.TryAdd(item.Id, 0))
-                {
-                    _logger.LogDebug("StrmTool - Item {Name} already being restored, skipping", fileName);
-                    return;
-                }
+                // 同时作为任务跟踪键，避免同一 item 创建多个任务
+                var taskKey = item.Id;
 
                 // 需要在后台线程执行恢复操作
                 var task = Task.Run(async () =>
@@ -114,7 +148,7 @@ namespace StrmTool
                         var latestItem = _libraryManager.GetItemById(item.Id);
                         if (latestItem == null)
                         {
-                            _logger.LogWarning("StrmTool - Item {Name} not found in library, skipping restore", fileName);
+                            _logger.LogWarning("Item {Name} not found in library, skipping restore", fileName);
                             return;
                         }
 
@@ -122,22 +156,31 @@ namespace StrmTool
                     }
                     catch (OperationCanceledException)
                     {
-                        _logger.LogDebug("StrmTool - Restore operation cancelled for {Name}", fileName);
+                        _logger.LogDebug("Restore operation cancelled for {Name}", fileName);
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "StrmTool - Error restoring metadata for {Name}", fileName);
+                        _logger.LogError(ex, "Error restoring metadata for {Name}", fileName);
                     }
                     finally
                     {
-                        _restoringItems.TryRemove(item.Id, out _);
+                        _runningTasks.TryRemove(taskKey, out _);
                     }
                 });
-                _runningTasks.Add(task);
+
+                // 使用 TryAdd 防止同一 item 同时创建多个恢复任务
+                if (!_runningTasks.TryAdd(taskKey, task))
+                {
+                    _logger.LogDebug("Item {Name} already being restored, skipping", fileName);
+                    return;
+                }
+
+                // 定期清理已完成的任务，防止内存泄漏
+                CleanupCompletedTasks();
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "StrmTool - Error in OnItemUpdated handler");
+                _logger.LogError(ex, "Error in OnItemUpdated handler");
             }
         }
 
@@ -147,31 +190,23 @@ namespace StrmTool
 
             try
             {
-                _logger.LogInformation("StrmTool - Restoring metadata for {Name} (Size: {OldSize} -> {NewSize})",
+                _logger.LogInformation("Restoring metadata for {Name} (Size: {OldSize} -> {NewSize})",
                     fileName, item.Size, cacheData.Size);
 
-                // 恢复元数据
+                // 恢复元数据（只保留前端显示和 Jellyfin 内部需要的字段）
+                // 注意：Jellyfin 不会重置媒体流信息，因此不需要恢复 MediaStreams
                 item.Size = cacheData.Size;
                 item.RunTimeTicks = cacheData.RunTimeTicks;
                 item.Container = cacheData.Container;
-                item.TotalBitrate = cacheData.TotalBitrate;
-                item.Width = cacheData.Width;
-                item.Height = cacheData.Height;
-
-                // 恢复媒体流
-                if (cacheData.MediaStreams != null && cacheData.MediaStreams.Count > 0)
-                {
-                    _mediaStreamRepository.SaveMediaStreams(item.Id, cacheData.MediaStreams, cancellationToken);
-                }
 
                 // 持久化修改
                 await item.UpdateToRepositoryAsync(ItemUpdateType.MetadataImport, cancellationToken).ConfigureAwait(false);
 
-                _logger.LogInformation("StrmTool - Successfully restored metadata for {Name}", fileName);
+                _logger.LogInformation("Successfully restored metadata for {Name}", fileName);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "StrmTool - Failed to restore metadata for {Name}", fileName);
+                _logger.LogError(ex, "Failed to restore metadata for {Name}", fileName);
             }
         }
 
@@ -190,21 +225,28 @@ namespace StrmTool
             {
             }
 
-            // 等待所有后台任务完成（最多等待30秒）
+            // 使用异步方式等待所有后台任务完成（最多等待30秒）
+            // 避免同步阻塞导致的潜在死锁
             try
             {
-                var allTasks = _runningTasks.ToArray();
-                if (allTasks.Length > 0)
+                var allTasks = _runningTasks.Values;
+                var waitTask = Task.WhenAll(allTasks);
+                var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30));
+
+                // 使用 Task.WhenAny 实现超时等待
+                var completedTask = Task.WhenAny(waitTask, timeoutTask).GetAwaiter().GetResult();
+
+                if (completedTask == timeoutTask)
                 {
-                    Task.WaitAll(allTasks, TimeSpan.FromSeconds(30));
+                    _logger.LogWarning("Timeout waiting for {Count} background tasks to complete", _runningTasks.Count);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "StrmTool - Error waiting for background tasks to complete");
+                _logger.LogWarning(ex, "Error waiting for background tasks to complete");
             }
 
-            _logger.LogInformation("StrmTool - Item update listener disposed");
+            _logger.LogInformation("Item update listener disposed");
         }
     }
 }

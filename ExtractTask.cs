@@ -20,8 +20,8 @@ namespace StrmTool
         protected readonly ILogger _logger;
         protected readonly StrmMediaInfoService _mediaInfoService;
         protected readonly MediaInfoCache _mediaCache;
-        protected PluginConfiguration _config;
-        protected SemaphoreSlim _semaphore;
+        protected volatile PluginConfiguration _config;
+        protected readonly SemaphoreSlim _semaphore;
 
         private readonly ILibraryManager _libraryManager;
         private readonly IMediaStreamRepository _mediaStreamRepository;
@@ -29,7 +29,6 @@ namespace StrmTool
         private ItemUpdateListener _updateListener;
         private readonly CancellationTokenSource _backgroundTaskCts = new CancellationTokenSource();
         private readonly object _eventLock = new object();
-        private readonly object _configLock = new object();
 
         public ExtractTask(
             ILibraryManager libraryManager,
@@ -44,7 +43,7 @@ namespace StrmTool
 
             if (Plugin.Instance == null)
             {
-                _logger.LogWarning("StrmTool - Plugin instance not found, using default configuration");
+                _logger.LogWarning("Plugin instance not found, using default configuration");
                 _config = new PluginConfiguration();
             }
             else
@@ -64,16 +63,16 @@ namespace StrmTool
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "StrmTool - Failed to initialize library scan listener");
+                _logger.LogError(ex, "Failed to initialize library scan listener");
             }
 
             try
             {
-                _updateListener = new ItemUpdateListener(_libraryManager, mediaStreamRepository, _logger, _config);
+                _updateListener = new ItemUpdateListener(_libraryManager, _logger, _config);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "StrmTool - Failed to initialize item update listener");
+                _logger.LogError(ex, "Failed to initialize item update listener");
             }
         }
 
@@ -91,31 +90,9 @@ namespace StrmTool
         {
             if (Plugin.Instance != null)
             {
-                var newConfig = Plugin.Instance.Configuration;
-                lock (_configLock)
-                {
-                    if (newConfig.MaxConcurrentExtract != _config.MaxConcurrentExtract)
-                    {
-                        var oldSemaphore = _semaphore;
-                        _semaphore = new SemaphoreSlim(newConfig.MaxConcurrentExtract);
-                        
-                        // 延迟释放旧的 semaphore，等待正在使用它的任务完成
-                        // 理论上最多等待 30 秒（假设每个任务最多 5 分钟，但通常很快）
-                        _ = Task.Run(async () =>
-                        {
-                            await Task.Delay(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
-                            try
-                            {
-                                oldSemaphore?.Dispose();
-                            }
-                            catch
-                            {
-                                // 忽略释放错误
-                            }
-                        });
-                    }
-                    _config = newConfig;
-                }
+                // 注意：MaxConcurrentExtract 需要 Jellyfin 重启后生效
+                // 避免在运行时替换 semaphore 导致并发控制失效
+                _config = Plugin.Instance.Configuration;
             }
         }
 
@@ -145,13 +122,13 @@ namespace StrmTool
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "StrmTool - Error processing {Name} ({Path})", item.Name, item.Path);
+                    _logger.LogError(ex, "Error processing {Name} ({Path})", item.Name, item.Path);
                 }
                 finally
                 {
                     _semaphore.Release();
                     int current = Interlocked.Increment(ref processed);
-                    double percent = (double)current / total * 100;
+                    double percent = Math.Min((double)current / total * 100, 100);
                     progress.Report(percent);
                 }
             });
@@ -182,13 +159,13 @@ namespace StrmTool
             try
             {
                 _mediaInfoService.SaveMediaStreams(item.Id, cachedStreams, cancellationToken);
-                _logger.LogInformation("StrmTool - {Name}: Used cached media info ({Count} streams)",
+                _logger.LogInformation("{Name}: Used cached media info ({Count} streams)",
                     item.Name, cachedStreams.Count);
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "StrmTool - {Name}: Failed to save cached media streams", item.Name);
+                _logger.LogWarning(ex, "{Name}: Failed to save cached media streams", item.Name);
                 return false;
             }
         }
@@ -211,9 +188,6 @@ namespace StrmTool
                     probeResult.Size,
                     probeResult.RunTimeTicks,
                     probeResult.Container,
-                    probeResult.TotalBitrate,
-                    probeResult.Width,
-                    probeResult.Height,
                     cancellationToken).ConfigureAwait(false);
             }
 
@@ -231,7 +205,7 @@ namespace StrmTool
 
             if (!_config.EnableAutoExtract)
             {
-                _logger.LogDebug("StrmTool - Auto-extract is disabled, skipping {Name}", fileName);
+                _logger.LogDebug("Auto-extract is disabled, skipping {Name}", fileName);
                 return;
             }
 
@@ -250,11 +224,11 @@ namespace StrmTool
                 }
                 catch (OperationCanceledException)
                 {
-                    _logger.LogDebug("StrmTool - Extraction cancelled for {Name}", fileName);
+                    _logger.LogDebug("Extraction cancelled for {Name}", fileName);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "StrmTool - Error in auto-extract background task for {Name}", fileName);
+                    _logger.LogError(ex, "Error in auto-extract background task for {Name}", fileName);
                 }
             }, _backgroundTaskCts.Token);
         }
@@ -281,7 +255,7 @@ namespace StrmTool
         public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
         {
             RefreshConfig();
-            _logger.LogInformation("StrmTool - Starting strm file scan...");
+            _logger.LogInformation("Starting strm file scan...");
 
             try
             {
@@ -309,18 +283,18 @@ namespace StrmTool
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "StrmTool - Error checking media streams for {Name}", item.Name);
+                        _logger.LogError(ex, "Error checking media streams for {Name}", item.Name);
                         strmItems.Add(item);
                     }
                 }
 
-                _logger.LogInformation("StrmTool - Found {Count} strm files in library, {NeedRefresh} need media info",
+                _logger.LogInformation("Found {Count} strm files in library, {NeedRefresh} need media info",
                     totalFound, strmItems.Count);
 
                 if (strmItems.Count == 0)
                 {
                     progress.Report(100);
-                    _logger.LogInformation("StrmTool - Nothing to process, task complete.");
+                    _logger.LogInformation("Nothing to process, task complete.");
                     return;
                 }
 
@@ -328,7 +302,7 @@ namespace StrmTool
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "StrmTool - Fatal error during strm file scan");
+                _logger.LogError(ex, "Fatal error during strm file scan");
                 throw;
             }
         }
@@ -337,16 +311,20 @@ namespace StrmTool
         {
             int processed = await ProcessStrmItemsAsync(strmItems, ProcessSingleItemAsync, progress, cancellationToken);
 
-            _logger.LogInformation("StrmTool - Task complete. Successfully processed {Processed}/{Total} strm files.",
+            _logger.LogInformation("Task complete. Successfully processed {Processed}/{Total} strm files.",
                 processed, strmItems.Count);
         }
 
-        private async Task ProcessSingleItemAsync(BaseItem item, CancellationToken cancellationToken)
+        /// <summary>
+        /// 核心处理逻辑：从缓存加载或探测媒体流
+        /// </summary>
+        private async Task<(List<MediaStream> before, List<MediaStream> after)> ProcessItemCoreAsync(
+            BaseItem item, 
+            string logPrefix,
+            CancellationToken cancellationToken)
         {
-            _logger.LogDebug("StrmTool - Processing {Name}", item.Name);
-
             var beforeStreams = _mediaInfoService.GetItemMediaStreams(item);
-            _logger.LogTrace("StrmTool - Before: {Count} streams", beforeStreams.Count);
+            _logger.LogDebug("{Prefix} - Before: {Count} streams", logPrefix, beforeStreams.Count);
 
             // 首先尝试从缓存加载
             bool loadedFromCache = TryLoadFromCache(item, cancellationToken);
@@ -358,11 +336,23 @@ namespace StrmTool
             }
 
             var afterStreams = _mediaInfoService.GetItemMediaStreams(item);
+            return (beforeStreams, afterStreams);
+        }
+
+        private async Task ProcessSingleItemAsync(BaseItem item, CancellationToken cancellationToken)
+        {
+            _logger.LogDebug("Processing {Name}", item.Name);
+
+            var (beforeStreams, afterStreams) = await ProcessItemCoreAsync(
+                item, 
+                "StrmTool", 
+                cancellationToken).ConfigureAwait(false);
+
             bool hasVideo = afterStreams.Any(s => s.Type == MediaStreamType.Video);
             bool hasAudio = afterStreams.Any(s => s.Type == MediaStreamType.Audio);
 
             _logger.LogInformation(
-                "StrmTool - {Name}: Probe done. Streams {Before}→{After}. Video:{Video}, Audio:{Audio}",
+                "{Name}: Probe done. Streams {Before}→{After}. Video:{Video}, Audio:{Audio}",
                 item.Name,
                 beforeStreams.Count,
                 afterStreams.Count,
@@ -372,7 +362,7 @@ namespace StrmTool
 
             if (!(hasVideo || hasAudio))
             {
-                _logger.LogWarning("StrmTool - {Name} may still lack media stream info", item.Name);
+                _logger.LogWarning("{Name} may still lack media stream info", item.Name);
             }
 
             await Task.Delay(_config.RefreshDelayMs, cancellationToken);
@@ -389,31 +379,28 @@ namespace StrmTool
                 await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
                 lockTaken = true;
 
-                _logger.LogDebug("StrmTool - Auto-extracting media info for new strm file: {Name}", fileName);
+                _logger.LogDebug("Auto-extracting media info for new strm file: {Name}", fileName);
 
                 var beforeStreams = _mediaInfoService.GetItemMediaStreams(item);
-                _logger.LogDebug("StrmTool - Before: {Count} streams", beforeStreams.Count);
+                _logger.LogDebug("Before: {Count} streams", beforeStreams.Count);
 
                 bool hasVideo = beforeStreams.Any(s => s.Type == MediaStreamType.Video);
                 bool hasAudio = beforeStreams.Any(s => s.Type == MediaStreamType.Audio);
 
                 if (!_config.ForceRefreshIgnoreExisting && (hasVideo || hasAudio))
                 {
-                    _logger.LogInformation("StrmTool - {Name} already has media stream info, skipping", fileName);
+                    _logger.LogInformation("{Name} already has media stream info, skipping", fileName);
                     return;
                 }
 
                 // 使用提取的通用方法处理缓存和探测
-                bool loadedFromCache = TryLoadFromCache(item, cancellationToken);
+                var (_, afterStreams) = await ProcessItemCoreAsync(
+                    item, 
+                    "Auto-extract", 
+                    cancellationToken).ConfigureAwait(false);
 
-                if (!loadedFromCache)
-                {
-                    await ProbeAndCacheAsync(item, cancellationToken).ConfigureAwait(false);
-                }
-
-                var afterStreams = _mediaInfoService.GetItemMediaStreams(item);
                 _logger.LogInformation(
-                    "StrmTool - Auto-extract complete for {Name}. Streams {Before}→{After}",
+                    "Auto-extract complete for {Name}. Streams {Before}→{After}",
                     fileName,
                     beforeStreams.Count,
                     afterStreams.Count
@@ -421,7 +408,7 @@ namespace StrmTool
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "StrmTool - Error in auto-extract for {Name}", fileName);
+                _logger.LogError(ex, "Error in auto-extract for {Name}", fileName);
             }
             finally
             {
@@ -457,8 +444,7 @@ namespace StrmTool
 
                 CleanupListener();
                 _backgroundTaskCts.Dispose();
-                _semaphore?.Dispose();
-                _semaphore = null;
+                _semaphore.Dispose();
             }
         }
     }
