@@ -2,6 +2,8 @@
 
 一款专为 Emby 媒体服务器设计的插件，用于优化 strm 文件的媒体信息管理和播放体验。
 
+如果你想用在jellyfin上，请移步jellyfin分支：https://github.com/jinlin-teck/StrmTool/tree/jellyfin
+
 ## 功能特性
 
 ### 🚀 媒体信息提取与加速
@@ -57,11 +59,14 @@
 **使用提示**：建议定期检查计划任务执行情况，确保媒体信息始终保持最新状态，另外下载dll文件注意版本，emby就下载emby版本的dll文件，jellyfin的下载jellyfin版本
 
 ---
+
 ---
 
 # StrmTool for Emby
 
 A plugin designed specifically for Emby media server to optimize strm file media information management and playback experience.
+
+If you want to use it with Jellyfin, please go to the Jellyfin branch: https://github.com/jinlin-teck/StrmTool/tree/jellyfin
 
 ## Features
 
