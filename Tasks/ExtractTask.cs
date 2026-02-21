@@ -11,7 +11,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using StrmLogHelper = StrmTool.Common.LogHelper;
 
 namespace StrmTool.Tasks
 {
@@ -38,7 +37,7 @@ namespace StrmTool.Tasks
 
         public async Task Execute(CancellationToken cancellationToken, IProgress<double> progress)
         {
-            StrmLogHelper.Info(_logger, "Starting strm file scan...");
+            Common.LogHelper.Info(_logger, "Starting strm file scan...");
 
             var mediaInfoManager = new MediaInfoManager(_logger, _libraryManager, _itemRepository, _jsonSerializer);
             var processor = new StrmFileProcessor(_logger, _libraryManager, _itemRepository, _mediaProbeManager, _jsonSerializer, mediaInfoManager);
@@ -46,12 +45,12 @@ namespace StrmTool.Tasks
             var strmItems = MediaInfoHelper.GetAllStrmFiles(_libraryManager)
                 .Where(i => !MediaInfoHelper.HasCompleteMediaInfo(i))
                 .ToList();
-            StrmLogHelper.Info(_logger, $"{strmItems.Count} strm files need media probing");
+            Common.LogHelper.Info(_logger, $"{strmItems.Count} strm files need media probing");
 
             if (strmItems.Count == 0)
             {
                 progress.Report(100);
-                StrmLogHelper.Info(_logger, "Nothing to process, task complete.");
+                Common.LogHelper.Info(_logger, "Nothing to process, task complete.");
                 return;
             }
 
@@ -61,7 +60,7 @@ namespace StrmTool.Tasks
 
             var tasks = strmItems.Select(async item =>
             {
-                await semaphore.WaitAsync(cancellationToken);
+                await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
                 try
                 {
                     if (cancellationToken.IsCancellationRequested)
@@ -69,14 +68,14 @@ namespace StrmTool.Tasks
                         return;
                     }
 
-                    await processor.ProcessStrmFileAsync(item, cancellationToken);
+                    await processor.ProcessStrmFileAsync(item, cancellationToken).ConfigureAwait(false);
 
                     var count = Interlocked.Increment(ref processed);
                     progress.Report((double)count / total * 100);
 
                     if (count < total)
                     {
-                        await Task.Delay(CommonConfiguration.StandardProcessingDelayMs, cancellationToken);
+                        await Task.Delay(CommonConfiguration.StandardProcessingDelayMs, cancellationToken).ConfigureAwait(false);
                     }
                 }
                 finally
@@ -85,10 +84,10 @@ namespace StrmTool.Tasks
                 }
             });
 
-            await Task.WhenAll(tasks);
+            await Task.WhenAll(tasks).ConfigureAwait(false);
 
             progress.Report(100);
-            StrmLogHelper.Info(_logger, $"Task complete. Successfully processed {processed}/{total} strm files.");
+            Common.LogHelper.Info(_logger, $"Task complete. Successfully processed {processed}/{total} strm files.");
         }
 
         public string Category => TaskLocalizer.GetCategory();

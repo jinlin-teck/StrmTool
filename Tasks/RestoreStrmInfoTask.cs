@@ -34,7 +34,7 @@ namespace StrmTool.Tasks
         public async Task Execute(CancellationToken cancellationToken, IProgress<double> progress)
         {
             var manager = new MediaInfoManager(_logger, _libraryManager, _itemRepository, _jsonSerializer);
-            await manager.RestoreAllAsync(progress, cancellationToken);
+            await manager.RestoreAllAsync(progress, cancellationToken).ConfigureAwait(false);
         }
 
         public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()

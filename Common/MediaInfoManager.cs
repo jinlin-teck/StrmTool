@@ -70,7 +70,7 @@ namespace StrmTool.Common
                     }
                     else
                     {
-                        await ExportItemAsync(item, cancellationToken);
+                        await ExportItemAsync(item, cancellationToken).ConfigureAwait(false);
                         LogHelper.Info(_logger, $"Successfully exported {item.Name} to: {filePath}");
                         exported++;
                     }
@@ -97,8 +97,8 @@ namespace StrmTool.Common
 
             try
             {
-                var mediaSourcesWithChapters = await PrepareMediaSourcesForExportAsync(item, cancellationToken);
-                await WriteMediaInfoToFileAsync(item, mediaSourcesWithChapters, cancellationToken);
+                var mediaSourcesWithChapters = await PrepareMediaSourcesForExportAsync(item, cancellationToken).ConfigureAwait(false);
+                await WriteMediaInfoToFileAsync(item, mediaSourcesWithChapters, cancellationToken).ConfigureAwait(false);
                 LogHelper.Debug(_logger, $"Exported {item.Name} → {GetMediaInfoJsonPath(item)}");
             }
             catch (Exception ex)
@@ -133,7 +133,7 @@ namespace StrmTool.Common
                 SanitizeMediaSourceInfo(jsonItem);
                 SanitizeChapters(jsonItem);
                 SetEpisodeSpecificInfo(item, jsonItem);
-                await SetAudioEmbeddedImageAsync(item, jsonItem, cancellationToken);
+                await SetAudioEmbeddedImageAsync(item, jsonItem, cancellationToken).ConfigureAwait(false);
             }
 
             return mediaSourcesWithChapters;
@@ -181,7 +181,7 @@ namespace StrmTool.Common
                 var primaryImageInfo = item.GetImageInfo(ImageType.Primary, 0);
                 if (primaryImageInfo != null && File.Exists(primaryImageInfo.Path))
                 {
-                    var imageBytes = await File.ReadAllBytesAsync(primaryImageInfo.Path, cancellationToken);
+                    var imageBytes = await File.ReadAllBytesAsync(primaryImageInfo.Path, cancellationToken).ConfigureAwait(false);
                     var base64String = Convert.ToBase64String(imageBytes);
                     jsonItem.EmbeddedImage = base64String;
                 }
@@ -193,7 +193,7 @@ namespace StrmTool.Common
         {
             string filePath = GetMediaInfoJsonPath(item);
             var json = _jsonSerializer.SerializeToString(mediaSourcesWithChapters);
-            await File.WriteAllTextAsync(filePath, json, cancellationToken);
+            await File.WriteAllTextAsync(filePath, json, cancellationToken).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -241,7 +241,7 @@ namespace StrmTool.Common
 
                 try
                 {
-                    await RestoreItemAsync(item, cancellationToken);
+                    await RestoreItemAsync(item, cancellationToken).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -265,12 +265,12 @@ namespace StrmTool.Common
                 LogHelper.Debug(_logger, $"Restoring media item: {item.Name} (Path: {item.Path})");
 
                 var jsonFilePath = GetMediaInfoJsonPath(item);
-                var mediaSourceWithChapters = await LoadAndValidateMediaSourceAsync(jsonFilePath, cancellationToken);
+                var mediaSourceWithChapters = await LoadAndValidateMediaSourceAsync(jsonFilePath, cancellationToken).ConfigureAwait(false);
                 
                 if (mediaSourceWithChapters == null)
                     return;
 
-                await RestoreMediaDataAsync(item, mediaSourceWithChapters, jsonFilePath, cancellationToken);
+                await RestoreMediaDataAsync(item, mediaSourceWithChapters, jsonFilePath, cancellationToken).ConfigureAwait(false);
                 LogHelper.Info(_logger, $"Restore completed: {item.Name} ← {jsonFilePath}");
             }
             catch (Exception ex)
@@ -291,7 +291,7 @@ namespace StrmTool.Common
             List<MediaSourceWithChapters>? mediaSourcesWithChapters;
             try
             {
-                var jsonContent = await File.ReadAllTextAsync(jsonFilePath, cancellationToken);
+                var jsonContent = await File.ReadAllTextAsync(jsonFilePath, cancellationToken).ConfigureAwait(false);
                 mediaSourcesWithChapters = _jsonSerializer.DeserializeFromString<List<MediaSourceWithChapters>>(jsonContent);
             }
             catch (Exception ex) when (ex is InvalidOperationException)
@@ -333,7 +333,7 @@ namespace StrmTool.Common
             string jsonFilePath, CancellationToken cancellationToken)
         {
             RestoreMediaStreams(item, mediaSourceWithChapters, cancellationToken);
-            await RestoreAudioEmbeddedImageAsync(item, mediaSourceWithChapters, cancellationToken);
+            await RestoreAudioEmbeddedImageAsync(item, mediaSourceWithChapters, cancellationToken).ConfigureAwait(false);
             UpdateItemProperties(item, mediaSourceWithChapters);
             UpdateVideoResolution(item, mediaSourceWithChapters);
             SaveItemToLibrary(item, cancellationToken);
@@ -344,7 +344,7 @@ namespace StrmTool.Common
         private void RestoreMediaStreams(
             BaseItem item, MediaSourceWithChapters mediaSourceWithChapters, CancellationToken cancellationToken)
         {
-            if (mediaSourceWithChapters.MediaSourceInfo!.MediaStreams != null)
+            if (mediaSourceWithChapters.MediaSourceInfo?.MediaStreams != null)
             {
                 _itemRepository.SaveMediaStreams(item.InternalId, mediaSourceWithChapters.MediaSourceInfo.MediaStreams, cancellationToken);
             }
@@ -378,7 +378,7 @@ namespace StrmTool.Common
                         }
                     }
                     
-                    await File.WriteAllBytesAsync(imagePath, imageBytes);
+                    await File.WriteAllBytesAsync(imagePath, imageBytes, cancellationToken).ConfigureAwait(false);
                     LogHelper.Debug(_logger, $"Restored embedded image for audio file {item.Name}");
                 }
                 catch (Exception ex)
@@ -390,15 +390,18 @@ namespace StrmTool.Common
 
         private void UpdateItemProperties(BaseItem item, MediaSourceWithChapters mediaSourceWithChapters)
         {
-            item.Size = mediaSourceWithChapters.MediaSourceInfo!.Size.GetValueOrDefault();
-            item.RunTimeTicks = mediaSourceWithChapters.MediaSourceInfo.RunTimeTicks;
-            item.Container = mediaSourceWithChapters.MediaSourceInfo.Container;
-            item.TotalBitrate = mediaSourceWithChapters.MediaSourceInfo.Bitrate.GetValueOrDefault();
+            if (mediaSourceWithChapters.MediaSourceInfo != null)
+            {
+                item.Size = mediaSourceWithChapters.MediaSourceInfo.Size.GetValueOrDefault();
+                item.RunTimeTicks = mediaSourceWithChapters.MediaSourceInfo.RunTimeTicks;
+                item.Container = mediaSourceWithChapters.MediaSourceInfo.Container;
+                item.TotalBitrate = mediaSourceWithChapters.MediaSourceInfo.Bitrate.GetValueOrDefault();
+            }
         }
 
         private void UpdateVideoResolution(BaseItem item, MediaSourceWithChapters mediaSourceWithChapters)
         {
-            if (mediaSourceWithChapters.MediaSourceInfo!.MediaStreams != null)
+            if (mediaSourceWithChapters.MediaSourceInfo?.MediaStreams != null)
             {
                 var videoStream = mediaSourceWithChapters.MediaSourceInfo.MediaStreams
                     .Where(s => s.Type == MediaStreamType.Video && s.Width.HasValue && s.Height.HasValue)

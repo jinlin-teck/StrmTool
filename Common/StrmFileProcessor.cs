@@ -51,11 +51,11 @@ namespace StrmTool.Common
 
             try
             {
-                LogHelper.Debug(_logger, $"Processing {item.Name}");
+                Common.LogHelper.Debug(_logger, $"Processing {item.Name}");
 
                 if (MediaInfoHelper.HasCompleteMediaInfo(item))
                 {
-                    LogHelper.Info(_logger, $"{item.Name} already has complete media info, skipping...");
+                    Common.LogHelper.Info(_logger, $"{item.Name} already has complete media info, skipping...");
                     return ProcessResult.Skipped;
                 }
 
@@ -68,58 +68,58 @@ namespace StrmTool.Common
             }
             catch (Exception ex)
             {
-                LogHelper.Error(_logger, $"Error processing {item.Name} ({item.Path}): {ex.Message}");
+                Common.LogHelper.Error(_logger, $"Error processing {item.Name} ({item.Path}): {ex.Message}");
                 return ProcessResult.Failed;
             }
         }
 
         private async Task<ProcessResult> RestoreFromJsonAsync(BaseItem item, CancellationToken cancellationToken)
         {
-            LogHelper.Debug(_logger, $"Found JSON file for {item.Name}, attempting to restore from JSON...");
+            Common.LogHelper.Debug(_logger, $"Found JSON file for {item.Name}, attempting to restore from JSON...");
 
-            await _mediaInfoManager.RestoreItemAsync(item, cancellationToken);
+            await _mediaInfoManager.RestoreItemAsync(item, cancellationToken).ConfigureAwait(false);
 
             var streams = item.GetMediaStreams() ?? new List<MediaStream>();
             bool hasVideo = streams.Any(s => s.Type == MediaStreamType.Video);
             bool hasAudio = streams.Any(s => s.Type == MediaStreamType.Audio);
 
-            LogHelper.Debug(_logger, $"{item.Name}: Restored from JSON. Video:{hasVideo}, Audio:{hasAudio}");
+            Common.LogHelper.Debug(_logger, $"{item.Name}: Restored from JSON. Video:{hasVideo}, Audio:{hasAudio}");
             return ProcessResult.RestoredFromJson;
         }
 
         private async Task<ProcessResult> ExtractAndExportAsync(BaseItem item, CancellationToken cancellationToken)
         {
-            LogHelper.Debug(_logger, $"No JSON file found for {item.Name}, probing media info...");
+            Common.LogHelper.Debug(_logger, $"No JSON file found for {item.Name}, probing media info...");
 
-            var beforeStreams = item.GetMediaStreams() ?? new System.Collections.Generic.List<MediaBrowser.Model.Entities.MediaStream>();
-            LogHelper.Debug(_logger, $"Before: {beforeStreams.Count} streams");
+            var beforeStreams = item.GetMediaStreams() ?? new List<MediaStream>();
+            Common.LogHelper.Debug(_logger, $"Before: {beforeStreams.Count} streams");
 
-            var streams = await _mediaInfoService.ProbeAndSaveMediaStreamsAsync(item, cancellationToken);
+            var streams = await _mediaInfoService.ProbeAndSaveMediaStreamsAsync(item, cancellationToken).ConfigureAwait(false);
 
             var streamList = item.GetMediaStreams() ?? new List<MediaStream>();
             bool hasVideo = streamList.Any(s => s.Type == MediaStreamType.Video);
             bool hasAudio = streamList.Any(s => s.Type == MediaStreamType.Audio);
 
-            LogHelper.Info(_logger, $"{item.Name}: Probed media info. Streams {beforeStreams.Count}→{streams.Count}. Video:{hasVideo}, Audio:{hasAudio}");
+            Common.LogHelper.Info(_logger, $"{item.Name}: Probed media info. Streams {beforeStreams.Count}→{streams.Count}. Video:{hasVideo}, Audio:{hasAudio}");
 
             // 只要有任意一种媒体流就算成功
             bool isSuccess = hasVideo || hasAudio;
 
             if (!isSuccess)
             {
-                LogHelper.Warn(_logger, $"{item.Name} may still lack full media info");
+                Common.LogHelper.Warn(_logger, $"{item.Name} may still lack full media info");
                 return ProcessResult.ExtractionFailed;
             }
 
             try
             {
-                await _mediaInfoManager.ExportItemAsync(item, cancellationToken);
-                LogHelper.Debug(_logger, $"{item.Name}: Media info exported to JSON file");
+                await _mediaInfoManager.ExportItemAsync(item, cancellationToken).ConfigureAwait(false);
+                Common.LogHelper.Debug(_logger, $"{item.Name}: Media info exported to JSON file");
                 return ProcessResult.ExtractedAndExported;
             }
             catch (Exception ex)
             {
-                LogHelper.Error(_logger, $"Error exporting {item.Name} to JSON: {ex.Message}");
+                Common.LogHelper.Error(_logger, $"Error exporting {item.Name} to JSON: {ex.Message}");
                 return ProcessResult.ExtractionFailed;
             }
         }

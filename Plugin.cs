@@ -13,7 +13,6 @@ using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
 using StrmTool.Common;
 using StrmTool.Handlers;
-using StrmLogHelper = StrmTool.Common.LogHelper;
 
 namespace StrmTool
 {
@@ -93,11 +92,11 @@ namespace StrmTool
                     _cancellationTokenSource, mediaInfoManager, strmFileProcessor);
                 libraryManager.ItemAdded += _eventHandler.OnItemAdded;
 
-                StrmLogHelper.Info(logger, "Item added event handler registered at plugin level");
+                Common.LogHelper.Info(logger, "Item added event handler registered at plugin level");
             }
             catch (Exception ex)
             {
-                StrmLogHelper.Error(logger, $"Error registering event handlers at plugin level: {ex.Message}");
+                Common.LogHelper.Error(logger, $"Error registering event handlers at plugin level: {ex.Message}");
             }
         }
 
@@ -110,15 +109,15 @@ namespace StrmTool
             {
                 _unobservedTaskExceptionHandler = (sender, e) =>
                 {
-                    StrmLogHelper.Error(logger, $"Unobserved task exception: {e.Exception?.Message}");
+                    Common.LogHelper.Error(logger, $"Unobserved task exception: {e.Exception?.Message}");
                     e.SetObserved();
                 };
                 TaskScheduler.UnobservedTaskException += _unobservedTaskExceptionHandler;
-                StrmLogHelper.Info(logger, "Unobserved task exception handler registered");
+                Common.LogHelper.Info(logger, "Unobserved task exception handler registered");
             }
             catch (Exception ex)
             {
-                StrmLogHelper.Error(logger, $"Error registering unobserved task exception handler: {ex.Message}");
+                Common.LogHelper.Error(logger, $"Error registering unobserved task exception handler: {ex.Message}");
             }
         }
 

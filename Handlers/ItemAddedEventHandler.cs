@@ -8,7 +8,6 @@ using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Serialization;
 using StrmTool.Common;
-using StrmLogHelper = StrmTool.Common.LogHelper;
 
 namespace StrmTool.Handlers
 {
@@ -79,20 +78,30 @@ namespace StrmTool.Handlers
                 return;
             }
 
-            StrmLogHelper.Info(_logger, $"New strm file detected: {e.Item.Name}");
+            Common.LogHelper.Info(_logger, $"New strm file detected: {e.Item.Name}");
 
             if (MediaInfoHelper.HasCompleteMediaInfo(e.Item))
             {
-                StrmLogHelper.Debug(_logger, $"{e.Item.Name} already has complete media info, skipping");
+                Common.LogHelper.Debug(_logger, $"{e.Item.Name} already has complete media info, skipping");
                 return;
             }
 
-            StrmLogHelper.Debug(_logger, $"Processing new strm file: {e.Item.Name}");
+            Common.LogHelper.Debug(_logger, $"Processing new strm file: {e.Item.Name}");
 
             var cancellationToken = _cancellationTokenSource?.Token ?? CancellationToken.None;
             
             // 使用有限并发控制处理新文件
-            _ = Task.Run(async () => await ProcessItemWithErrorHandlingAsync(e.Item, cancellationToken), cancellationToken);
+            _ = Task.Run(async () => 
+            {
+                try
+                {
+                    await ProcessItemWithErrorHandlingAsync(e.Item, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    Common.LogHelper.Error(_logger, $"Unhandled error in background task for {e.Item.Name}: {ex.Message}");
+                }
+            }, cancellationToken);
         }
 
         private async Task ProcessItemWithErrorHandlingAsync(BaseItem item, CancellationToken cancellationToken)
@@ -102,14 +111,14 @@ namespace StrmTool.Handlers
                 return;
             }
 
-            await Task.Delay(CommonConfiguration.StandardProcessingDelayMs, cancellationToken);
+            await Task.Delay(CommonConfiguration.StandardProcessingDelayMs, cancellationToken).ConfigureAwait(false);
 
             if (cancellationToken.IsCancellationRequested)
             {
                 return;
             }
 
-            await _semaphore.WaitAsync(cancellationToken);
+            await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
                 if (cancellationToken.IsCancellationRequested)
@@ -117,15 +126,15 @@ namespace StrmTool.Handlers
                     return;
                 }
 
-                await ProcessItemAsync(item, cancellationToken);
+                await ProcessItemAsync(item, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
-                StrmLogHelper.Debug(_logger, $"Processing cancelled for {item.Name}");
+                Common.LogHelper.Debug(_logger, $"Processing cancelled for {item.Name}");
             }
             catch (Exception ex)
             {
-                StrmLogHelper.Error(_logger, $"Error processing item {item.Name}: {ex.Message}");
+                Common.LogHelper.Error(_logger, $"Error processing item {item.Name}: {ex.Message}");
             }
             finally
             {
@@ -135,7 +144,7 @@ namespace StrmTool.Handlers
 
         private async Task ProcessItemAsync(BaseItem item, CancellationToken cancellationToken)
         {
-            var result = await _strmFileProcessor.ProcessStrmFileAsync(item, cancellationToken);
+            var result = await _strmFileProcessor.ProcessStrmFileAsync(item, cancellationToken).ConfigureAwait(false);
             LogProcessResult(item.Name, result);
         }
 
@@ -144,19 +153,19 @@ namespace StrmTool.Handlers
             switch (result)
             {
                 case ProcessResult.Skipped:
-                    StrmLogHelper.Debug(_logger, $"{itemName} was skipped");
+                    Common.LogHelper.Debug(_logger, $"{itemName} was skipped");
                     break;
                 case ProcessResult.RestoredFromJson:
-                    StrmLogHelper.Info(_logger, $"{itemName} successfully restored from JSON");
+                    Common.LogHelper.Info(_logger, $"{itemName} successfully restored from JSON");
                     break;
                 case ProcessResult.ExtractedAndExported:
-                    StrmLogHelper.Info(_logger, $"{itemName} successfully extracted and exported");
+                    Common.LogHelper.Info(_logger, $"{itemName} successfully extracted and exported");
                     break;
                 case ProcessResult.ExtractionFailed:
-                    StrmLogHelper.Warn(_logger, $"{itemName} extraction failed, will be processed by scheduled task");
+                    Common.LogHelper.Warn(_logger, $"{itemName} extraction failed, will be processed by scheduled task");
                     break;
                 case ProcessResult.Failed:
-                    StrmLogHelper.Error(_logger, $"{itemName} processing failed");
+                    Common.LogHelper.Error(_logger, $"{itemName} processing failed");
                     break;
             }
         }
