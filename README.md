@@ -2,7 +2,7 @@
 
 一款专为 Emby 媒体服务器设计的插件，用于优化 strm 文件的媒体信息管理和播放体验。
 
-如果你想用在jellyfin上，请移步jellyfin分支：https://github.com/jinlin-teck/StrmTool/tree/jellyfin
+如果你想用在Jellyfin上，请移步Jellyfin分支：https://github.com/jinlin-teck/StrmTool/tree/jellyfin
 
 ## 功能特性
 
@@ -40,7 +40,16 @@
 
 ## 配置说明
 
-- **实时处理**：默认启用，无需额外配置
+插件提供以下设置，如需修改，需要在 `plugins/configurations/StrmTool.xml` 中配置
+
+| 配置项               | 说明                                     | 默认值 |
+| -------------------- | ---------------------------------------- | ------ |
+| **启用自动提取**     | 检测到新 STRM 文件时是否自动提取媒体信息 | true   |
+| **处理延迟（毫秒）** | 每个文件处理之间的延迟时间（毫秒）       | 2000   |
+| **最大并发数**       | 同时处理的最大文件数量                   | 3      |
+
+其他说明：
+
 - **计划任务**：可根据需求调整执行时间
 - **备份策略**：自动备份，无需手动干预
 
@@ -104,7 +113,16 @@ Find the following features in "Scheduled Tasks" in Emby admin dashboard:
 
 ## Configuration
 
-- **Real-time processing**: Enabled by default, no additional configuration needed
+The plugin provides the following settings. To modify them, edit the file `plugins/configurations/StrmTool.xml`.
+
+| Configuration Option      | Description                                                         | Default Value |
+| ------------------------- | ------------------------------------------------------------------- | ------------- |
+| **Enable Auto Extract**   | Whether to auto-extract media info when new strm files are detected | true          |
+| **Processing Delay (ms)** | Delay between processing each file (ms)                             | 2000          |
+| **Max Concurrency**       | Maximum number of files to process simultaneously                   | 3             |
+
+Additional notes:
+
 - **Scheduled tasks**: Execution time can be adjusted as needed
 - **Backup strategy**: Auto backup, no manual intervention needed
 

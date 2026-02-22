@@ -294,7 +294,7 @@ namespace StrmTool.Common
                 var jsonContent = await File.ReadAllTextAsync(jsonFilePath, cancellationToken).ConfigureAwait(false);
                 mediaSourcesWithChapters = _jsonSerializer.DeserializeFromString<List<MediaSourceWithChapters>>(jsonContent);
             }
-            catch (Exception ex) when (ex is InvalidOperationException)
+            catch (Exception ex)
             {
                 LogHelper.ErrorException(_logger, $"JSON deserialization failed for {jsonFilePath}. File may be corrupted.", ex);
                 return null;

@@ -30,6 +30,16 @@ namespace StrmTool
             }
         }
 
+        public static PluginConfiguration GetSafeConfiguration()
+        {
+            var config = Instance?.Configuration;
+            if (config == null || !config.IsValid)
+            {
+                return new PluginConfiguration();
+            }
+            return config;
+        }
+
         private ItemAddedEventHandler? _eventHandler;
         private ILibraryManager? _libraryManager;
         private CancellationTokenSource? _cancellationTokenSource;
@@ -71,6 +81,7 @@ namespace StrmTool
             }
             _libraryManager = libraryManager;
             _cancellationTokenSource = new CancellationTokenSource();
+            
             RegisterEventHandlers(libraryManager, logger, itemRepository, jsonSerializer, mediaProbeManager);
             RegisterUnobservedTaskExceptionHandler(logger);
         }
@@ -120,6 +131,8 @@ namespace StrmTool
                 Common.LogHelper.Error(logger, $"Error registering unobserved task exception handler: {ex.Message}");
             }
         }
+
+
 
         /// <summary>
         /// 清理事件处理器，防止内存泄漏
@@ -215,5 +228,31 @@ namespace StrmTool
 
     public class PluginConfiguration : BasePluginConfiguration
     {
+        private bool _enableAutoExtract = true;
+        private int _processingDelayMs = 2000;
+        private int _maxConcurrency = 3;
+        private bool _isValid = true;
+
+        public bool EnableAutoExtract
+        {
+            get => _enableAutoExtract;
+            set => _enableAutoExtract = value;
+        }
+
+        public int ProcessingDelayMs
+        {
+            get => _processingDelayMs;
+            set => _processingDelayMs = Math.Clamp(value, 0, 20000);
+        }
+
+        public int MaxConcurrency
+        {
+            get => _maxConcurrency;
+            set => _maxConcurrency = Math.Clamp(value, 1, 10);
+        }
+
+        public bool IsValid => _isValid && 
+            _processingDelayMs >= 0 && _processingDelayMs <= 20000 &&
+            _maxConcurrency >= 1 && _maxConcurrency <= 10;
     }
 }

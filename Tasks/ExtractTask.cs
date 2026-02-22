@@ -56,7 +56,11 @@ namespace StrmTool.Tasks
 
             int total = strmItems.Count;
             int processed = 0;
-            using var semaphore = new SemaphoreSlim(CommonConfiguration.MaxConcurrency, CommonConfiguration.MaxConcurrency);
+            var config = Plugin.GetSafeConfiguration();
+            var maxConcurrency = config.MaxConcurrency;
+            var delayMs = config.ProcessingDelayMs;
+            
+            using var semaphore = new SemaphoreSlim(maxConcurrency, maxConcurrency);
 
             var tasks = strmItems.Select(async item =>
             {
@@ -75,7 +79,7 @@ namespace StrmTool.Tasks
 
                     if (count < total)
                     {
-                        await Task.Delay(CommonConfiguration.StandardProcessingDelayMs, cancellationToken).ConfigureAwait(false);
+                        await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
                     }
                 }
                 finally

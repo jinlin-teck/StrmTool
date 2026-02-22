@@ -78,6 +78,13 @@ namespace StrmTool.Handlers
                 return;
             }
 
+            var config = Plugin.GetSafeConfiguration();
+            if (!config.EnableAutoExtract)
+            {
+                Common.LogHelper.Debug(_logger, $"Auto-extract is disabled, skipping: {e.Item.Name}");
+                return;
+            }
+
             Common.LogHelper.Info(_logger, $"New strm file detected: {e.Item.Name}");
 
             if (MediaInfoHelper.HasCompleteMediaInfo(e.Item))
@@ -111,7 +118,9 @@ namespace StrmTool.Handlers
                 return;
             }
 
-            await Task.Delay(CommonConfiguration.StandardProcessingDelayMs, cancellationToken).ConfigureAwait(false);
+            var config = Plugin.GetSafeConfiguration();
+            var delayMs = config.ProcessingDelayMs;
+            await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
 
             if (cancellationToken.IsCancellationRequested)
             {

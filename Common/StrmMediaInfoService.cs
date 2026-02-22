@@ -129,6 +129,12 @@ namespace StrmTool.Common
         {
             try
             {
+                if (!File.Exists(strmFilePath))
+                {
+                    LogHelper.Warn(logger, $"STRM file not found: {strmFilePath}");
+                    return string.Empty;
+                }
+                
                 using var stream = File.OpenText(strmFilePath);
                 string? line;
                 while ((line = stream.ReadLine()) != null)
