@@ -39,11 +39,11 @@ namespace StrmTool.Common
             
             if (elapsed > 5000)
             {
-                LogHelper.Warn(_logger, message);
+                Common.LogHelper.Warn(_logger, message);
             }
             else
             {
-                LogHelper.Debug(_logger, message);
+                Common.LogHelper.Debug(_logger, message);
             }
         }
 

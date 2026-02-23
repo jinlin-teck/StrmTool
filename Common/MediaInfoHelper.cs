@@ -26,8 +26,9 @@ namespace StrmTool.Common
         /// 检查媒体项是否包含媒体流信息
         /// 只要有音频流或视频流中的任意一种，就认为媒体信息已存在
         /// </summary>
-        public static bool HasCompleteMediaInfo(BaseItem item)
+        public static bool HasCompleteMediaInfo(BaseItem? item)
         {
+            if (item == null) return false;
             var streams = item.GetMediaStreams() ?? new List<MediaStream>();
             return streams.Any(s => s.Type == MediaStreamType.Video || s.Type == MediaStreamType.Audio);
         }

@@ -75,7 +75,8 @@ namespace StrmTool.Tasks
                     await processor.ProcessStrmFileAsync(item, cancellationToken).ConfigureAwait(false);
 
                     var count = Interlocked.Increment(ref processed);
-                    progress.Report((double)count / total * 100);
+                    var progressValue = (double)count / total * 100;
+                    progress.Report(progressValue);
 
                     if (count < total)
                     {

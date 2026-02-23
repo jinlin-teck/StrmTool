@@ -44,7 +44,7 @@ namespace StrmTool.Common
                 var strmContent = ReadStrmSourcePath(item.Path, _logger);
                 if (string.IsNullOrWhiteSpace(strmContent))
                 {
-                    LogHelper.Warn(_logger, $"STRM file is empty: {item.Path}");
+                    Common.LogHelper.Warn(_logger, $"STRM file is empty: {item.Path}");
                     return new List<MediaStream>();
                 }
 
@@ -85,44 +85,53 @@ namespace StrmTool.Common
                     _libraryManager.UpdateItems(new List<BaseItem> { item }, null,
                         ItemUpdateType.MetadataImport, false, false, null, cancellationToken);
                     
-                    LogHelper.Debug(_logger, $"Successfully saved {mediaInfo.MediaStreams.Count} media streams and updated item properties for {fileName}");
+                    Common.LogHelper.Debug(_logger, $"Successfully saved {mediaInfo.MediaStreams.Count} media streams and updated item properties for {fileName}");
                     return mediaInfo.MediaStreams.ToList();
                 }
 
-                LogHelper.Debug(_logger, $"No media streams found for {fileName}");
+                Common.LogHelper.Debug(_logger, $"No media streams found for {fileName}");
                 return new List<MediaStream>();
             }
             catch (Exception ex)
             {
-                LogHelper.ErrorException(_logger, $"Error probing STRM content for {fileName}", ex);
+                Common.LogHelper.ErrorException(_logger, $"Error probing STRM content for {fileName}", ex);
                 return new List<MediaStream>();
             }
         }
 
         private static MediaProtocol GetProtocolFromPath(string path)
         {
-            if (path.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-                path.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            return path?.ToLowerInvariant() switch
             {
-                return MediaProtocol.Http;
-            }
+                var p when p?.StartsWith("http://") == true || p?.StartsWith("https://") == true => MediaProtocol.Http,
+                var p when p?.StartsWith("rtmp://") == true => MediaProtocol.Rtmp,
+                var p when p?.StartsWith("rtsp://") == true => MediaProtocol.Rtsp,
+                var p when p?.StartsWith("ftp://") == true => MediaProtocol.Ftp,
+                _ => MediaProtocol.File
+            };
+        }
 
-            if (path.StartsWith("rtmp://", StringComparison.OrdinalIgnoreCase))
-            {
-                return MediaProtocol.Rtmp;
-            }
-
-            if (path.StartsWith("rtsp://", StringComparison.OrdinalIgnoreCase))
-            {
-                return MediaProtocol.Rtsp;
-            }
-
-            if (path.StartsWith("ftp://", StringComparison.OrdinalIgnoreCase))
-            {
-                return MediaProtocol.Ftp;
-            }
-
-            return MediaProtocol.File;
+        /// <summary>
+        /// 验证媒体路径格式是否有效（支持URL、本地路径、UNC路径等Emby可访问的任何格式）
+        /// </summary>
+        private static bool IsValidMediaPath(string path)
+        {
+            // 排除空字符串和明显无效的内容（如注释行）
+            if (string.IsNullOrWhiteSpace(path))
+                return false;
+            
+            // 排除以 # 开头的注释行
+            if (path.TrimStart().StartsWith("#", StringComparison.Ordinal))
+                return false;
+            
+            // 其他所有非空内容都认为是有效的，交给Emby处理
+            // 支持格式：
+            // - URL: http://, https://, rtmp://, rtsp://, ftp://
+            // - Linux路径: /media/movies/somemovie.mp4
+            // - Windows路径: C:\Movies\some.mov, \\server\share\movie.mp4
+            // - 相对路径: movies/somemovie.mp4
+            // - 甚至简单的文件名
+            return true;
         }
 
         private static string ReadStrmSourcePath(string strmFilePath, ILogger logger)
@@ -131,7 +140,7 @@ namespace StrmTool.Common
             {
                 if (!File.Exists(strmFilePath))
                 {
-                    LogHelper.Warn(logger, $"STRM file not found: {strmFilePath}");
+                    Common.LogHelper.Warn(logger, $"STRM file not found: {strmFilePath}");
                     return string.Empty;
                 }
                 
@@ -140,7 +149,7 @@ namespace StrmTool.Common
                 while ((line = stream.ReadLine()) != null)
                 {
                     var sourcePath = line.Trim();
-                    if (!string.IsNullOrWhiteSpace(sourcePath))
+                    if (!string.IsNullOrWhiteSpace(sourcePath) && IsValidMediaPath(sourcePath))
                     {
                         return sourcePath;
                     }
@@ -150,7 +159,7 @@ namespace StrmTool.Common
             }
             catch (Exception ex)
             {
-                LogHelper.ErrorException(logger, $"Error reading STRM file: {strmFilePath}", ex);
+                Common.LogHelper.ErrorException(logger, $"Error reading STRM file: {strmFilePath}", ex);
                 return string.Empty;
             }
         }

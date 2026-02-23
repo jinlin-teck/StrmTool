@@ -35,8 +35,8 @@ namespace StrmTool.Common
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _libraryManager = libraryManager ?? throw new ArgumentNullException(nameof(libraryManager));
             _itemRepository = itemRepository ?? throw new ArgumentNullException(nameof(itemRepository));
-            _ = mediaProbeManager ?? throw new ArgumentNullException(nameof(mediaProbeManager));
-            _ = jsonSerializer ?? throw new ArgumentNullException(nameof(jsonSerializer));
+            if (mediaProbeManager == null) throw new ArgumentNullException(nameof(mediaProbeManager));
+            if (jsonSerializer == null) throw new ArgumentNullException(nameof(jsonSerializer));
 
             _mediaInfoManager = mediaInfoManager ?? new MediaInfoManager(logger, libraryManager, itemRepository, jsonSerializer);
             _mediaInfoService = new StrmMediaInfoService(logger, libraryManager, mediaProbeManager, itemRepository);

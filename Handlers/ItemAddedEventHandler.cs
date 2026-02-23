@@ -22,6 +22,8 @@ namespace StrmTool.Handlers
         private readonly CancellationTokenSource? _cancellationTokenSource;
         private readonly SemaphoreSlim _semaphore;
         private readonly StrmFileProcessor _strmFileProcessor;
+        private int _pendingTaskCount;
+        private const int MaxPendingTasks = 100;
         private bool _disposed;
 
         public ItemAddedEventHandler(
@@ -40,7 +42,7 @@ namespace StrmTool.Handlers
             _jsonSerializer = jsonSerializer ?? throw new ArgumentNullException(nameof(jsonSerializer));
             _mediaProbeManager = mediaProbeManager ?? throw new ArgumentNullException(nameof(mediaProbeManager));
             _cancellationTokenSource = cancellationTokenSource;
-            _semaphore = new SemaphoreSlim(1, 1);
+            _semaphore = new SemaphoreSlim(CommonConfiguration.MaxConcurrency, CommonConfiguration.MaxConcurrency);
             _mediaInfoManager = mediaInfoManager ?? new MediaInfoManager(logger, libraryManager, itemRepository, jsonSerializer);
             _strmFileProcessor = strmFileProcessor ?? new StrmFileProcessor(
                 logger, libraryManager, itemRepository, mediaProbeManager, jsonSerializer, _mediaInfoManager);
@@ -95,6 +97,14 @@ namespace StrmTool.Handlers
 
             Common.LogHelper.Debug(_logger, $"Processing new strm file: {e.Item.Name}");
 
+            // 检查待处理任务数量，防止内存压力
+            if (Interlocked.Increment(ref _pendingTaskCount) > MaxPendingTasks)
+            {
+                Interlocked.Decrement(ref _pendingTaskCount);
+                Common.LogHelper.Warn(_logger, $"Too many pending tasks ({MaxPendingTasks}), skipping {e.Item.Name}. It will be processed by scheduled task.");
+                return;
+            }
+
             var cancellationToken = _cancellationTokenSource?.Token ?? CancellationToken.None;
             
             // 使用有限并发控制处理新文件
@@ -107,6 +117,10 @@ namespace StrmTool.Handlers
                 catch (Exception ex)
                 {
                     Common.LogHelper.Error(_logger, $"Unhandled error in background task for {e.Item.Name}: {ex.Message}");
+                }
+                finally
+                {
+                    Interlocked.Decrement(ref _pendingTaskCount);
                 }
             }, cancellationToken);
         }

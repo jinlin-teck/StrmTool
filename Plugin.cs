@@ -32,12 +32,20 @@ namespace StrmTool
 
         public static PluginConfiguration GetSafeConfiguration()
         {
-            var config = Instance?.Configuration;
-            if (config == null || !config.IsValid)
+            try
             {
+                var config = Instance?.Configuration;
+                if (config == null || !config.IsValid)
+                {
+                    return new PluginConfiguration();
+                }
+                return config;
+            }
+            catch (Exception)
+            {
+                // 插件初始化期间可能无法访问 Configuration，返回默认值
                 return new PluginConfiguration();
             }
-            return config;
         }
 
         private ItemAddedEventHandler? _eventHandler;
@@ -98,17 +106,39 @@ namespace StrmTool
                 var mediaInfoManager = new MediaInfoManager(logger, libraryManager, itemRepository, jsonSerializer);
                 var strmFileProcessor = new StrmFileProcessor(
                     logger, libraryManager, itemRepository, mediaProbeManager, jsonSerializer, mediaInfoManager);
+                var config = GetSafeConfiguration();
                 _eventHandler = new ItemAddedEventHandler(
                     logger, libraryManager, itemRepository, jsonSerializer, mediaProbeManager, 
                     _cancellationTokenSource, mediaInfoManager, strmFileProcessor);
                 libraryManager.ItemAdded += _eventHandler.OnItemAdded;
 
                 Common.LogHelper.Info(logger, "Item added event handler registered at plugin level");
+                LogConfiguration(logger);
             }
             catch (Exception ex)
             {
                 Common.LogHelper.Error(logger, $"Error registering event handlers at plugin level: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// 在后台线程延迟打印配置信息，确保配置文件已加载
+        /// </summary>
+        private void LogConfiguration(ILogger logger)
+        {
+            Task.Run(async () =>
+            {
+                await Task.Delay(5000).ConfigureAwait(false);
+                try
+                {
+                    var config = GetSafeConfiguration();
+                    Common.LogHelper.Info(logger, $"Configuration loaded: EnableAutoExtract={config.EnableAutoExtract}, ProcessingDelayMs={config.ProcessingDelayMs}, MaxConcurrency={config.MaxConcurrency}");
+                }
+                catch (Exception ex)
+                {
+                    Common.LogHelper.Error(logger, $"Failed to log configuration: {ex.Message}");
+                }
+            });
         }
 
         /// <summary>
