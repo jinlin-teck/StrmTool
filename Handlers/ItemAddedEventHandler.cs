@@ -42,7 +42,12 @@ namespace StrmTool.Handlers
             _jsonSerializer = jsonSerializer ?? throw new ArgumentNullException(nameof(jsonSerializer));
             _mediaProbeManager = mediaProbeManager ?? throw new ArgumentNullException(nameof(mediaProbeManager));
             _cancellationTokenSource = cancellationTokenSource;
-            _semaphore = new SemaphoreSlim(CommonConfiguration.MaxConcurrency, CommonConfiguration.MaxConcurrency);
+
+            // 使用用户配置的 MaxConcurrency，默认为3
+            var config = Plugin.GetSafeConfiguration();
+            var maxConcurrency = config.MaxConcurrency;
+            _semaphore = new SemaphoreSlim(maxConcurrency, maxConcurrency);
+
             _mediaInfoManager = mediaInfoManager ?? new MediaInfoManager(logger, libraryManager, itemRepository, jsonSerializer);
             _strmFileProcessor = strmFileProcessor ?? new StrmFileProcessor(
                 logger, libraryManager, itemRepository, mediaProbeManager, jsonSerializer, _mediaInfoManager);

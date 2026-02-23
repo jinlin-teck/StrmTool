@@ -403,18 +403,12 @@ namespace StrmTool.Common
 
         private void UpdateVideoResolution(BaseItem item, MediaSourceWithChapters mediaSourceWithChapters)
         {
-            if (mediaSourceWithChapters.MediaSourceInfo?.MediaStreams != null)
-            {
-                var videoStream = mediaSourceWithChapters.MediaSourceInfo.MediaStreams
-                    .Where(s => s.Type == MediaStreamType.Video && s.Width.HasValue && s.Height.HasValue)
-                    .OrderByDescending(s => (long)(s.Width ?? 0) * (s.Height ?? 0))
-                    .FirstOrDefault();
+            var videoStream = MediaInfoHelper.GetHighestResolutionVideoStream(mediaSourceWithChapters.MediaSourceInfo?.MediaStreams);
 
-                if (videoStream != null)
-                {
-                    item.Width = videoStream.Width ?? 0;
-                    item.Height = videoStream.Height ?? 0;
-                }
+            if (videoStream != null)
+            {
+                item.Width = videoStream.Width ?? 0;
+                item.Height = videoStream.Height ?? 0;
             }
         }
 

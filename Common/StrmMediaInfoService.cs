@@ -71,10 +71,7 @@ namespace StrmTool.Common
                     item.Container = mediaInfo.Container;
                     item.TotalBitrate = mediaInfo.Bitrate.GetValueOrDefault();
 
-                    var videoStream = mediaInfo.MediaStreams
-                        .Where(s => s.Type == MediaStreamType.Video && s.Width.HasValue && s.Height.HasValue)
-                        .OrderByDescending(s => (long)(s.Width ?? 0) * (s.Height ?? 0))
-                        .FirstOrDefault();
+                    var videoStream = MediaInfoHelper.GetHighestResolutionVideoStream(mediaInfo.MediaStreams);
 
                     if (videoStream != null)
                     {

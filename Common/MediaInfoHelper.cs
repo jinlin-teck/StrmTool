@@ -93,5 +93,19 @@ namespace StrmTool.Common
             var allStrmFiles = GetAllStrmFiles(libraryManager);
             return allStrmFiles.Where(HasCompleteMediaInfo).ToList();
         }
+
+        /// <summary>
+        /// 从媒体流列表中获取最高分辨率的视频流
+        /// </summary>
+        public static MediaStream? GetHighestResolutionVideoStream(IEnumerable<MediaStream>? streams)
+        {
+            if (streams == null)
+                return null;
+
+            return streams
+                .Where(s => s.Type == MediaStreamType.Video && s.Width.HasValue && s.Height.HasValue)
+                .OrderByDescending(s => (long)(s.Width ?? 0) * (s.Height ?? 0))
+                .FirstOrDefault();
+        }
     }
 }
