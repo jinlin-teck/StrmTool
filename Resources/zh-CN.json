@@ -17,5 +17,7 @@
   "StrmTool.LblForceRefreshIgnoreExisting": "无视是否已有媒体流",
   "StrmTool.DescForceRefreshIgnoreExisting": "启用后，无论是否已存在媒体信息都会执行刷新（仍可利用缓存）",
   "StrmTool.LblForceRefreshIgnoreCache": "无视缓存",
-  "StrmTool.DescForceRefreshIgnoreCache": "启用后，直接从远程服务器获取信息，忽略缓存文件（仍会判断是否已有媒体信息）"
+  "StrmTool.DescForceRefreshIgnoreCache": "启用后，直接从远程服务器获取信息，忽略缓存文件（仍会判断是否已有媒体信息）",
+  "StrmTool.LblMetadataRestoreTimeout": "元数据恢复超时（分钟）",
+  "StrmTool.DescMetadataRestoreTimeout": "当 strm 文件大小被重置时，等待元数据恢复的最大时间（1-30分钟）"
 }

@@ -34,6 +34,9 @@ namespace StrmTool
     /// </summary>
     public class StrmMediaInfoService
     {
+        // STRM 文件扩展名常量
+        public const string StrmFileExtension = ".strm";
+
         private readonly ILogger _logger;
         private readonly ILibraryManager _libraryManager;
         private readonly IMediaEncoder _mediaEncoder;
@@ -80,7 +83,7 @@ namespace StrmTool
                     try
                     {
                         files = Directory.EnumerateFiles(current)
-                            .Where(path => path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase));
+                            .Where(path => path.EndsWith(StrmFileExtension, StringComparison.OrdinalIgnoreCase));
                     }
                     catch (Exception ex)
                     {
@@ -217,12 +220,6 @@ namespace StrmTool
             _mediaStreamRepository.SaveMediaStreams(itemId, mediaStreams, cancellationToken);
         }
 
-        public async Task<List<MediaStream>> ProbeAndSaveMediaStreamsAsync(BaseItem item, CancellationToken cancellationToken)
-        {
-            var result = await ProbeMediaStreamsAsync(item, cancellationToken).ConfigureAwait(false);
-            return result.MediaStreams;
-        }
-
         /// <summary>
         /// 探测媒体流并返回完整结果（包含元数据）
         /// </summary>
@@ -307,7 +304,7 @@ namespace StrmTool
             return MediaProtocol.File;
         }
 
-        private static string ReadStrmSourcePath(string strmFilePath)
+        private string ReadStrmSourcePath(string strmFilePath)
         {
             try
             {
@@ -324,7 +321,7 @@ namespace StrmTool
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is System.Security.SecurityException)
             {
-                // 捕获所有常见的文件访问异常
+                _logger.LogWarning(ex, "Failed to read strm file: {Path}", strmFilePath);
                 return string.Empty;
             }
         }

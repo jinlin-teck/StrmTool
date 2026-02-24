@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -101,13 +102,13 @@ namespace StrmTool
                 RefreshConfig();
 
                 // 检查是否是strm文件
-                if (!e.Item.Path?.EndsWith(".strm", StringComparison.OrdinalIgnoreCase) ?? true)
+                if (!e.Item.Path?.EndsWith(StrmMediaInfoService.StrmFileExtension, StringComparison.OrdinalIgnoreCase) ?? true)
                 {
                     return;
                 }
 
                 var item = e.Item;
-                var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
+                var fileName = Path.GetFileNameWithoutExtension(item.Path);
 
                 // 检查是否有缓存
                 if (!_mediaCache.TryGetFullCache(item.Path, out var cacheData))
@@ -137,12 +138,20 @@ namespace StrmTool
                 // 同时作为任务跟踪键，避免同一 item 创建多个任务
                 var taskKey = item.Id;
 
-                // 需要在后台线程执行恢复操作
-                var task = Task.Run(async () =>
+                // 先检查是否已在处理中
+                if (_runningTasks.ContainsKey(taskKey))
+                {
+                    _logger.LogDebug("Item {Name} already being restored, skipping", fileName);
+                    return;
+                }
+
+                // 创建任务但不立即启动
+                var task = new Task(async () =>
                 {
                     try
                     {
-                        using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+                        var timeoutMinutes = _config?.MetadataRestoreTimeoutMinutes ?? 5;
+                        using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(timeoutMinutes));
 
                         // 重新获取最新 item，避免使用可能已过时的对象
                         var latestItem = _libraryManager.GetItemById(item.Id);
@@ -168,12 +177,15 @@ namespace StrmTool
                     }
                 });
 
-                // 使用 TryAdd 防止同一 item 同时创建多个恢复任务
+                // 原子性添加，只有成功添加才启动任务
                 if (!_runningTasks.TryAdd(taskKey, task))
                 {
                     _logger.LogDebug("Item {Name} already being restored, skipping", fileName);
                     return;
                 }
+
+                // 成功添加后才启动任务
+                task.Start(TaskScheduler.Default);
 
                 // 定期清理已完成的任务，防止内存泄漏
                 CleanupCompletedTasks();
@@ -186,7 +198,7 @@ namespace StrmTool
 
         private async Task RestoreItemMetadataAsync(BaseItem item, MediaInfoCacheData cacheData, CancellationToken cancellationToken)
         {
-            var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
+            var fileName = Path.GetFileNameWithoutExtension(item.Path);
 
             try
             {

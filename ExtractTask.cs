@@ -201,7 +201,7 @@ namespace StrmTool
 
             RefreshConfig();
 
-            var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
+            var fileName = Path.GetFileNameWithoutExtension(item.Path);
 
             if (!_config.EnableAutoExtract)
             {
@@ -364,21 +364,16 @@ namespace StrmTool
             {
                 _logger.LogWarning("{Name} may still lack media stream info", item.Name);
             }
-
-            await Task.Delay(_config.RefreshDelayMs, cancellationToken);
         }
 
         public async Task ExtractSingleItemAsync(BaseItem item, CancellationToken cancellationToken)
         {
             RefreshConfig();
-            var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
-            var lockTaken = false;
+            var fileName = Path.GetFileNameWithoutExtension(item.Path);
 
+            await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
-                lockTaken = true;
-
                 _logger.LogDebug("Auto-extracting media info for new strm file: {Name}", fileName);
 
                 var beforeStreams = _mediaInfoService.GetItemMediaStreams(item);
@@ -412,10 +407,7 @@ namespace StrmTool
             }
             finally
             {
-                if (lockTaken)
-                {
-                    _semaphore.Release();
-                }
+                _semaphore.Release();
             }
         }
 

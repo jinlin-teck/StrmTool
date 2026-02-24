@@ -45,5 +45,10 @@ namespace StrmTool
         /// 是否无视缓存文件，强制从远程服务器获取
         /// </summary>
         public bool ForceRefreshIgnoreCache { get; set; } = false;
+
+        /// <summary>
+        /// 元数据恢复超时时间（分钟）
+        /// </summary>
+        public int MetadataRestoreTimeoutMinutes { get; set; } = 5;
     }
 }

@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -58,19 +59,21 @@ namespace StrmTool
                 var item = e.Item;
 
                 // 检查是否是 strm 文件
-                if (item.Path?.EndsWith(".strm", StringComparison.OrdinalIgnoreCase) ?? false)
+                if (item.Path == null || !item.Path.EndsWith(StrmMediaInfoService.StrmFileExtension, StringComparison.OrdinalIgnoreCase))
                 {
-                    // 再次检查是否已释放，防止竞态条件
-                    if (_isDisposed)
-                        return;
-
-                    // 使用实际文件名而不是 item.Name，因为 item.Name 可能还没有完全解析
-                    var fileName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
-                    _logger.LogInformation("New strm file detected: {Name} ({Path})", fileName, item.Path);
-
-                    // 新入库文件通过事件通知 ExtractTask 进行处理
-                    StrmFileDetected?.Invoke(this, item);
+                    return;
                 }
+
+                // 再次检查是否已释放，防止竞态条件
+                if (_isDisposed)
+                    return;
+
+                // 使用实际文件名而不是 item.Name，因为 item.Name 可能还没有完全解析
+                var fileName = Path.GetFileNameWithoutExtension(item.Path);
+                _logger.LogInformation("New strm file detected: {Name} ({Path})", fileName, item.Path);
+
+                // 新入库文件通过事件通知 ExtractTask 进行处理
+                StrmFileDetected?.Invoke(this, item);
             }
             catch (Exception ex)
             {

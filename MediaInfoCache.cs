@@ -79,28 +79,69 @@ namespace StrmTool
             if (string.IsNullOrEmpty(path))
                 return false;
 
-            // 检查常见的路径遍历模式
-            var normalized = path.Replace('/', '\\');
-
-            // 检查 .. 路径遍历
-            if (normalized.Contains("..\\") || normalized.Contains("\\.."))
-            {
-                return true;
-            }
-
-            // 检查空字符
+            // 检查空字符（注入攻击）
             if (path.Contains('\0'))
             {
                 return true;
             }
 
-            // 检查其他危险字符
+            // 检查其他控制字符
             foreach (char c in path)
             {
                 if (c < 32 && c != '\t' && c != '\n' && c != '\r')
                 {
                     return true;
                 }
+            }
+
+            // 规范化路径检查：使用 Path.GetFullPath 检测实际路径是否超出预期
+            try
+            {
+                // 获取目录部分（因为 strm 文件路径必须是文件而非目录）
+                var directory = Path.GetDirectoryName(path);
+                if (string.IsNullOrEmpty(directory))
+                {
+                    return true;
+                }
+
+                // 检查 .. 路径遍历（规范化前）
+                var normalized = path.Replace('/', '\\');
+                
+                // 检查 .. 后跟路径分隔符，或在开头的情况
+                if (normalized.Contains(@"..\") || normalized.Contains(@"\..") || 
+                    normalized.StartsWith(@"..") || normalized.EndsWith(@".."))
+                {
+                    return true;
+                }
+
+                // 检查 UNC 路径（潜在的 SMB 路径遍历）
+                if (normalized.StartsWith(@"\\"))
+                {
+                    return true;
+                }
+
+                // 检查交替数据流（ADS）- Windows 特有攻击
+                if (normalized.Contains(':') && !normalized.StartsWith(@"\\?\") && !normalized.StartsWith(@"\\.\"))
+                {
+                    // 排除驱动器盘符（如 C:\）
+                    var colonIndex = normalized.IndexOf(':');
+                    if (colonIndex > 1 || (colonIndex == 1 && !char.IsLetter(normalized[0])))
+                    {
+                        return true;
+                    }
+                }
+
+                // 检查符号链接和快捷方式
+                var extension = Path.GetExtension(path)?.ToLowerInvariant();
+                if (extension == ".lnk" || extension == ".symlink" || extension == ".junction")
+                {
+                    return true;
+                }
+            }
+            catch
+            {
+                // 如果路径规范化失败，视为可疑
+                return true;
             }
 
             return false;
@@ -437,7 +478,7 @@ namespace StrmTool
 
                     // 从缓存文件名反推出 strm 文件名
                     var baseName = Path.GetFileNameWithoutExtension(fileName);
-                    var strmPath = Path.Combine(Path.GetDirectoryName(jsonFile) ?? string.Empty, baseName + ".strm");
+                    var strmPath = Path.Combine(Path.GetDirectoryName(jsonFile) ?? string.Empty, baseName + StrmMediaInfoService.StrmFileExtension);
 
                     // 使用 GetCachePath 验证路径安全性
                     var expectedCachePath = GetCachePath(strmPath);

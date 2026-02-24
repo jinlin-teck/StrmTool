@@ -17,5 +17,7 @@
   "StrmTool.LblForceRefreshIgnoreExisting": "Ignore existing media streams",
   "StrmTool.DescForceRefreshIgnoreExisting": "When enabled, will always execute refresh regardless of whether media stream info already exists (cache can still be used)",
   "StrmTool.LblForceRefreshIgnoreCache": "Ignore cache",
-  "StrmTool.DescForceRefreshIgnoreCache": "When enabled, will always fetch from remote server directly, ignoring cache files (will still check if media streams exist)"
+  "StrmTool.DescForceRefreshIgnoreCache": "When enabled, will always fetch from remote server directly, ignoring cache files (will still check if media streams exist)",
+  "StrmTool.LblMetadataRestoreTimeout": "Metadata restore timeout (minutes)",
+  "StrmTool.DescMetadataRestoreTimeout": "Maximum time to wait for metadata restoration when strm file size is reset (1-30 minutes)"
 }

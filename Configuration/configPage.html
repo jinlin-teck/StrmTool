@@ -35,6 +35,13 @@
             </div>
         </div>
         <div class="verticalSection">
+            <div class="inputContainer">
+                <label for="txtMetadataRestoreTimeout" id="lblMetadataRestoreTimeout">Metadata restore timeout (minutes)</label>
+                <input type="number" id="txtMetadataRestoreTimeout" min="1" max="30" step="1" />
+                <div class="fieldDescription" id="descMetadataRestoreTimeout">Maximum time to wait for metadata restoration when strm file size is reset (1-30 minutes)</div>
+            </div>
+        </div>
+        <div class="verticalSection">
             <h4 id="lblForceRefresh" style="margin-bottom: 10px;">Force Refresh Options</h4>
             <div class="checkboxContainer" style="margin-left: 40px;">
                 <label>
@@ -77,6 +84,8 @@
                 'StrmTool.DescForceRefreshIgnoreExisting': 'When enabled, will always execute refresh regardless of whether media stream info already exists (cache can still be used)',
                 'StrmTool.LblForceRefreshIgnoreCache': 'Ignore cache',
                 'StrmTool.DescForceRefreshIgnoreCache': 'When enabled, will always fetch from remote server directly, ignoring cache files (will still check if media streams exist)',
+                'StrmTool.LblMetadataRestoreTimeout': 'Metadata restore timeout (minutes)',
+                'StrmTool.DescMetadataRestoreTimeout': 'Maximum time to wait for metadata restoration when strm file size is reset (1-30 minutes)',
                 'StrmTool.BtnSave': 'Save',
                 'StrmTool.SettingsSaved': 'Settings saved successfully'
             },
@@ -95,9 +104,10 @@
                 'StrmTool.DescForceRefreshIgnoreExisting': '启用后，无论是否已存在媒体信息都会执行刷新（仍可利用缓存）',
                 'StrmTool.LblForceRefreshIgnoreCache': '无视缓存',
                 'StrmTool.DescForceRefreshIgnoreCache': '启用后，直接从远程服务器获取信息，忽略缓存文件（仍会判断是否已有媒体信息）',
+                'StrmTool.LblMetadataRestoreTimeout': '元数据恢复超时（分钟）',
+                'StrmTool.DescMetadataRestoreTimeout': '当 strm 文件大小被重置时，等待元数据恢复的最大时间（1-30分钟）',
                 'StrmTool.BtnSave': '保存',
-                'StrmTool.SettingsSaved': '设置已保存',
-
+                'StrmTool.SettingsSaved': '设置已保存'
             }
         };
 
@@ -180,6 +190,8 @@
             document.getElementById('descForceRefreshIgnoreExisting').textContent = t('StrmTool.DescForceRefreshIgnoreExisting');
             document.getElementById('lblForceRefreshIgnoreCache').textContent = t('StrmTool.LblForceRefreshIgnoreCache');
             document.getElementById('descForceRefreshIgnoreCache').textContent = t('StrmTool.DescForceRefreshIgnoreCache');
+            document.getElementById('lblMetadataRestoreTimeout').textContent = t('StrmTool.LblMetadataRestoreTimeout');
+            document.getElementById('descMetadataRestoreTimeout').textContent = t('StrmTool.DescMetadataRestoreTimeout');
             document.getElementById('btnSave').textContent = t('StrmTool.BtnSave');
         }
 
@@ -193,19 +205,22 @@
                 document.getElementById('txtMaxConcurrentExtract').value = config.MaxConcurrentExtract ?? 5;
                 document.getElementById('chkForceRefreshIgnoreExisting').checked = config.ForceRefreshIgnoreExisting === true;
                 document.getElementById('chkForceRefreshIgnoreCache').checked = config.ForceRefreshIgnoreCache === true;
+                document.getElementById('txtMetadataRestoreTimeout').value = config.MetadataRestoreTimeoutMinutes ?? 5;
             });
         }
 
         function saveConfig() {
             const refreshDelayInput = parseInt(document.getElementById('txtRefreshDelay').value, 10);
             const maxConcurrentInput = parseInt(document.getElementById('txtMaxConcurrentExtract').value, 10);
+            const metadataRestoreTimeoutInput = parseInt(document.getElementById('txtMetadataRestoreTimeout').value, 10);
             var config = {
                 EnableAutoExtract: document.getElementById('chkEnableAutoExtract').checked,
                 EnableMediaInfoCache: document.getElementById('chkEnableMediaInfoCache').checked,
                 RefreshDelayMs: Number.isNaN(refreshDelayInput) ? 1000 : refreshDelayInput,
                 MaxConcurrentExtract: Number.isNaN(maxConcurrentInput) ? 5 : maxConcurrentInput,
                 ForceRefreshIgnoreExisting: document.getElementById('chkForceRefreshIgnoreExisting').checked,
-                ForceRefreshIgnoreCache: document.getElementById('chkForceRefreshIgnoreCache').checked
+                ForceRefreshIgnoreCache: document.getElementById('chkForceRefreshIgnoreCache').checked,
+                MetadataRestoreTimeoutMinutes: Number.isNaN(metadataRestoreTimeoutInput) ? 5 : metadataRestoreTimeoutInput
             };
 
             ApiClient.updatePluginConfiguration('6107fc8c-883a-4171-b70e-7590658706B9', config).then(function() {

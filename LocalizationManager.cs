@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Reflection;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Microsoft.Extensions.Logging;
 using MediaBrowser.Common.Configuration;
@@ -19,6 +20,12 @@ namespace StrmTool
         private readonly ILocalizationManager _localizationManager;
         private readonly IApplicationPaths _applicationPaths;
         private readonly string _currentCulture;
+
+        // 正则表达式匹配资源名称中的文化代码（格式：Namespace.Folder.culture-code.json）
+        // 匹配类似 "StrmTool.Resources.zh-CN.json" 或 "StrmTool.Resources.en.json"
+        private static readonly Regex CultureCodeRegex = new Regex(
+            @"^.*\.Resources\.([a-zA-Z]{2}(?:-[a-zA-Z]{2})?)\.json$",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
         public LocalizationManager(ILogger logger, ILocalizationManager localizationManager, IApplicationPaths applicationPaths = null)
         {
@@ -136,14 +143,14 @@ namespace StrmTool
                 {
                     try
                     {
-                        // 解析文化代码（格式：StrmTool.Resources.zh-CN.json）
-                        var parts = resourceName.Split('.');
-                        if (parts.Length < 3)
+                        // 使用正则表达式解析文化代码（格式：StrmTool.Resources.zh-CN.json）
+                        var match = CultureCodeRegex.Match(resourceName);
+                        if (!match.Success)
                         {
-                            _logger.LogWarning("Invalid resource name format: {Name}", resourceName);
+                            _logger.LogWarning("Invalid resource name format: {Name}, expected pattern: *.Resources.culture-code.json", resourceName);
                             continue;
                         }
-                        var cultureName = parts[^2];
+                        var cultureName = match.Groups[1].Value;
 
                         using var stream = assembly.GetManifestResourceStream(resourceName);
                         if (stream != null)
