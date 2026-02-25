@@ -58,7 +58,7 @@ namespace StrmTool
 
             try
             {
-                _scanListener = new LibraryScanListener(_libraryManager, _logger, _config);
+                _scanListener = new LibraryScanListener(_libraryManager, _logger, _config, _mediaCache);
                 _scanListener.StrmFileDetected += OnStrmFileDetected;
             }
             catch (Exception ex)
@@ -68,7 +68,7 @@ namespace StrmTool
 
             try
             {
-                _updateListener = new ItemUpdateListener(_libraryManager, _logger, _config);
+                _updateListener = new ItemUpdateListener(_libraryManager, _logger, _config, _mediaCache);
             }
             catch (Exception ex)
             {
@@ -213,8 +213,9 @@ namespace StrmTool
             {
                 try
                 {
+                    var timeoutMinutes = _config?.MetadataRestoreTimeoutMinutes ?? 5;
                     using var cts = CancellationTokenSource.CreateLinkedTokenSource(_backgroundTaskCts.Token);
-                    cts.CancelAfter(TimeSpan.FromMinutes(5));
+                    cts.CancelAfter(TimeSpan.FromMinutes(timeoutMinutes));
                     await Task.Delay(_config.RefreshDelayMs, cts.Token).ConfigureAwait(false);
 
                     if (_disposed)

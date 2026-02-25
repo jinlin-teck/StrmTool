@@ -37,6 +37,15 @@ namespace StrmTool
         // STRM 文件扩展名常量
         public const string StrmFileExtension = ".strm";
 
+        /// <summary>
+        /// 检查路径是否是 strm 文件
+        /// </summary>
+        public static bool IsStrmFile(string path)
+        {
+            return !string.IsNullOrWhiteSpace(path) &&
+                   path.EndsWith(StrmFileExtension, StringComparison.OrdinalIgnoreCase);
+        }
+
         private readonly ILogger _logger;
         private readonly ILibraryManager _libraryManager;
         private readonly IMediaEncoder _mediaEncoder;
@@ -83,7 +92,7 @@ namespace StrmTool
                     try
                     {
                         files = Directory.EnumerateFiles(current)
-                            .Where(path => path.EndsWith(StrmFileExtension, StringComparison.OrdinalIgnoreCase));
+                            .Where(path => IsStrmFile(path));
                     }
                     catch (Exception ex)
                     {
@@ -313,6 +322,12 @@ namespace StrmTool
                     var sourcePath = line.Trim();
                     if (!string.IsNullOrWhiteSpace(sourcePath))
                     {
+                        // 安全验证：检查路径遍历攻击
+                        if (MediaInfoCache.ContainsPathTraversal(sourcePath))
+                        {
+                            _logger.LogWarning("Potential path traversal attack detected in strm file: {Path}", strmFilePath);
+                            return string.Empty;
+                        }
                         return sourcePath;
                     }
                 }

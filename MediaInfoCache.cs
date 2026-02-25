@@ -74,7 +74,7 @@ namespace StrmTool
         /// <summary>
         /// 检查路径是否包含路径遍历攻击模式
         /// </summary>
-        private static bool ContainsPathTraversal(string path)
+        public static bool ContainsPathTraversal(string path)
         {
             if (string.IsNullOrEmpty(path))
                 return false;

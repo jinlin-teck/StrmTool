@@ -22,6 +22,15 @@ namespace StrmTool
             ILibraryManager libraryManager,
             ILogger logger,
             PluginConfiguration config)
+            : this(libraryManager, logger, config, null)
+        {
+        }
+
+        public LibraryScanListener(
+            ILibraryManager libraryManager,
+            ILogger logger,
+            PluginConfiguration config,
+            MediaInfoCache mediaCache)
         {
             _logger = logger;
             _libraryManager = libraryManager;
@@ -59,7 +68,7 @@ namespace StrmTool
                 var item = e.Item;
 
                 // 检查是否是 strm 文件
-                if (item.Path == null || !item.Path.EndsWith(StrmMediaInfoService.StrmFileExtension, StringComparison.OrdinalIgnoreCase))
+                if (!StrmMediaInfoService.IsStrmFile(item.Path))
                 {
                     return;
                 }

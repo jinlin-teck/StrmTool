@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -26,10 +27,19 @@ namespace StrmTool
             ILibraryManager libraryManager,
             ILogger logger,
             PluginConfiguration config)
+            : this(libraryManager, logger, config, null)
+        {
+        }
+
+        public ItemUpdateListener(
+            ILibraryManager libraryManager,
+            ILogger logger,
+            PluginConfiguration config,
+            MediaInfoCache mediaCache)
         {
             _logger = logger;
             _libraryManager = libraryManager;
-            _mediaCache = new MediaInfoCache(logger);
+            _mediaCache = mediaCache ?? new MediaInfoCache(logger);
             _runningTasks = new ConcurrentDictionary<Guid, Task>();
             _config = config;
 
@@ -102,7 +112,7 @@ namespace StrmTool
                 RefreshConfig();
 
                 // 检查是否是strm文件
-                if (!e.Item.Path?.EndsWith(StrmMediaInfoService.StrmFileExtension, StringComparison.OrdinalIgnoreCase) ?? true)
+                if (!StrmMediaInfoService.IsStrmFile(e.Item.Path))
                 {
                     return;
                 }
@@ -237,20 +247,24 @@ namespace StrmTool
             {
             }
 
-            // 使用异步方式等待所有后台任务完成（最多等待30秒）
-            // 避免同步阻塞导致的潜在死锁
+            // 等待所有后台任务完成（最多等待30秒）
+            // 使用 Task.Run 避免同步阻塞导致的潜在死锁
             try
             {
-                var allTasks = _runningTasks.Values;
-                var waitTask = Task.WhenAll(allTasks);
-                var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30));
-
-                // 使用 Task.WhenAny 实现超时等待
-                var completedTask = Task.WhenAny(waitTask, timeoutTask).GetAwaiter().GetResult();
-
-                if (completedTask == timeoutTask)
+                var allTasks = _runningTasks.Values.ToArray();
+                if (allTasks.Length > 0)
                 {
-                    _logger.LogWarning("Timeout waiting for {Count} background tasks to complete", _runningTasks.Count);
+                    Task.Run(async () =>
+                    {
+                        var waitTask = Task.WhenAll(allTasks);
+                        var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30));
+                        var completedTask = await Task.WhenAny(waitTask, timeoutTask).ConfigureAwait(false);
+
+                        if (completedTask == timeoutTask)
+                        {
+                            _logger.LogWarning("Timeout waiting for {Count} background tasks to complete", allTasks.Length);
+                        }
+                    }).Wait(TimeSpan.FromSeconds(30));
                 }
             }
             catch (Exception ex)
