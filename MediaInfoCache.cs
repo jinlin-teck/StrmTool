@@ -36,43 +36,26 @@ namespace StrmTool
             if (string.IsNullOrWhiteSpace(strmPath))
                 return null;
 
-            // 路径遍历防护：检查非法字符和路径遍历模式
-            if (ContainsPathTraversal(strmPath))
-            {
-                return null;
-            }
-
-            // 确保路径是绝对路径
+            // 确保路径是绝对路径（Jellyfin 的 item.Path 应该总是绝对路径）
             if (!Path.IsPathRooted(strmPath))
-            {
                 return null;
-            }
 
             var directory = Path.GetDirectoryName(strmPath);
             if (string.IsNullOrWhiteSpace(directory))
                 return null;
 
-            // 确保目录存在且合法
-            if (!Directory.Exists(directory))
-            {
-                return null;
-            }
-
             var fileName = Path.GetFileNameWithoutExtension(strmPath) + CacheFileSuffix;
             var cachePath = Path.Combine(directory, fileName);
-
-            // 最终验证生成的缓存路径是否仍在合法目录下
-            var cacheDirectory = Path.GetDirectoryName(cachePath);
-            if (!string.Equals(directory, cacheDirectory, StringComparison.OrdinalIgnoreCase))
-            {
-                return null;
-            }
 
             return cachePath;
         }
 
         /// <summary>
         /// 检查路径是否包含路径遍历攻击模式
+        /// </summary>
+        /// <summary>
+        /// 检查路径是否包含路径遍历攻击模式
+        /// 用于验证 strm 文件内容中的路径
         /// </summary>
         public static bool ContainsPathTraversal(string path)
         {
@@ -85,62 +68,11 @@ namespace StrmTool
                 return true;
             }
 
-            // 检查其他控制字符
-            foreach (char c in path)
+            // 检查基本的路径遍历模式
+            var normalized = path.Replace('/', '\\');
+            if (normalized.Contains(@"..\\") || normalized.Contains(@"\\..") || 
+                normalized.StartsWith(@"..") || normalized.EndsWith(@".."))
             {
-                if (c < 32 && c != '\t' && c != '\n' && c != '\r')
-                {
-                    return true;
-                }
-            }
-
-            // 规范化路径检查：使用 Path.GetFullPath 检测实际路径是否超出预期
-            try
-            {
-                // 获取目录部分（因为 strm 文件路径必须是文件而非目录）
-                var directory = Path.GetDirectoryName(path);
-                if (string.IsNullOrEmpty(directory))
-                {
-                    return true;
-                }
-
-                // 检查 .. 路径遍历（规范化前）
-                var normalized = path.Replace('/', '\\');
-                
-                // 检查 .. 后跟路径分隔符，或在开头的情况
-                if (normalized.Contains(@"..\") || normalized.Contains(@"\..") || 
-                    normalized.StartsWith(@"..") || normalized.EndsWith(@".."))
-                {
-                    return true;
-                }
-
-                // 检查 UNC 路径（潜在的 SMB 路径遍历）
-                if (normalized.StartsWith(@"\\"))
-                {
-                    return true;
-                }
-
-                // 检查交替数据流（ADS）- Windows 特有攻击
-                if (normalized.Contains(':') && !normalized.StartsWith(@"\\?\") && !normalized.StartsWith(@"\\.\"))
-                {
-                    // 排除驱动器盘符（如 C:\）
-                    var colonIndex = normalized.IndexOf(':');
-                    if (colonIndex > 1 || (colonIndex == 1 && !char.IsLetter(normalized[0])))
-                    {
-                        return true;
-                    }
-                }
-
-                // 检查符号链接和快捷方式
-                var extension = Path.GetExtension(path)?.ToLowerInvariant();
-                if (extension == ".lnk" || extension == ".symlink" || extension == ".junction")
-                {
-                    return true;
-                }
-            }
-            catch
-            {
-                // 如果路径规范化失败，视为可疑
                 return true;
             }
 
