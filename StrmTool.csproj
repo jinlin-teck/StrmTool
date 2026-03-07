@@ -1,18 +1,17 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFrameworks>netstandard2.1</TargetFrameworks>
-    <AssemblyVersion>2.4.1</AssemblyVersion>
-    <FileVersion>2.4.1</FileVersion>
+    <AssemblyVersion>2.5.0</AssemblyVersion>
+    <FileVersion>2.5.0</FileVersion>
     <RootNamespace>StrmTool</RootNamespace>
     <AssemblyName>StrmTool</AssemblyName>
     <Nullable>enable</Nullable>
     <IncludeSourceRevisionInInformationalVersion>true</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
   <ItemGroup>
-    <None Remove="Images\thumb.png" />
-  </ItemGroup>
-  <ItemGroup>
     <EmbeddedResource Include="Images\thumb.png" />
+    <EmbeddedResource Include="Configuration\configPage.html" />
+    <EmbeddedResource Include="Configuration\configPage.js" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="mediabrowser.server.core" Version="4.8.11.0" />
@@ -26,6 +25,7 @@
     <Folder Include="Common\" />
     <Folder Include="Handlers\" />
     <Folder Include="Tasks\" />
+    <Folder Include="Configuration\" />
     <Folder Include="Properties\" />
   </ItemGroup>
 </Project>

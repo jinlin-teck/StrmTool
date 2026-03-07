@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -16,7 +17,7 @@ using StrmTool.Handlers;
 
 namespace StrmTool
 {
-    public class Plugin : BasePlugin<PluginConfiguration>, IHasThumbImage, IDisposable
+    public class Plugin : BasePlugin<PluginConfiguration>, IHasThumbImage, IHasWebPages, IDisposable
     {
         private static readonly object _lock = new object();
         public static Plugin? Instance { get; private set; }
@@ -254,6 +255,23 @@ namespace StrmTool
         public override string Name => PluginName;
 
         public override Guid Id => CommonConfiguration.PluginId;
+
+        public IEnumerable<PluginPageInfo> GetPages()
+        {
+            return new[]
+            {
+                new PluginPageInfo
+                {
+                    Name = "strmtoolv3",
+                    EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configPage.html"
+                },
+                new PluginPageInfo
+                {
+                    Name = "strmtoolconfigv3js",
+                    EmbeddedResourcePath = $"{GetType().Namespace}.Configuration.configPage.js"
+                }
+            };
+        }
     }
 
     public class PluginConfiguration : BasePluginConfiguration

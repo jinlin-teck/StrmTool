@@ -1,0 +1,41 @@
+<div id="StrmToolConfigPage" data-role="page" data-title="StrmTool" class="page type-interior pluginConfigurationPage"
+    data-require="emby-input,emby-checkbox,emby-button" data-controller="__plugin/strmtoolconfigv3js">
+    <style>
+        #StrmToolConfigPage .pageTitle,
+        #StrmToolConfigPage .headerTitle,
+        #StrmToolConfigPage .viewHeaderTitle {
+            margin-left: 1.75em;
+        }
+    </style>
+    <div data-role="content">
+        <div class="content-primary">
+            <form id="StrmToolConfigForm">
+                <div class="inputContainer">
+                    <label class="checkboxContainer">
+                        <input id="EnableAutoExtract" type="checkbox" is="emby-checkbox" checked />
+                        <span>启用自动提取</span>
+                    </label>
+                    <div class="fieldDescription">新 STRM 文件入库时自动提取媒体信息。</div>
+                </div>
+
+                <div class="inputContainer">
+                    <label for="ProcessingDelayMs">处理延迟（毫秒）</label>
+                    <input id="ProcessingDelayMs" type="number" is="emby-input" min="0" max="20000" step="100" value="2000" required />
+                    <div class="fieldDescription">每个文件处理之间的等待时间，范围 0-20000。</div>
+                </div>
+
+                <div class="inputContainer">
+                    <label for="MaxConcurrency">最大并发数</label>
+                    <input id="MaxConcurrency" type="number" is="emby-input" min="1" max="10" step="1" value="3" required />
+                    <div class="fieldDescription">同时处理任务数，范围 1-10。</div>
+                </div>
+
+                <div>
+                    <button is="emby-button" type="submit" class="raised button-submit block">
+                        <span>保存</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

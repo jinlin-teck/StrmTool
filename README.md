@@ -40,7 +40,7 @@
 
 ## 配置说明
 
-插件提供以下设置，如需修改，需要在 `plugins/configurations/StrmTool.xml` 中配置
+v2.5.0开始提供配置页面，在emby设置面板插件栏找到本插件，点击插件名称即可打开。提供的设置项如下：
 
 | 配置项               | 说明                                     | 默认值 |
 | -------------------- | ---------------------------------------- | ------ |
@@ -113,7 +113,7 @@ Find the following features in "Scheduled Tasks" in Emby admin dashboard:
 
 ## Configuration
 
-The plugin provides the following settings. To modify them, edit the file `plugins/configurations/StrmTool.xml`.
+Starting from v2.5.0, a configuration page is available. Locate this plugin in the Plugins section of the Emby admin dashboard and click on the plugin name to open it. The following settings are provided:
 
 | Configuration Option      | Description                                                         | Default Value |
 | ------------------------- | ------------------------------------------------------------------- | ------------- |
