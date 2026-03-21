@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -90,7 +91,7 @@ namespace StrmTool
             }
             _libraryManager = libraryManager;
             _cancellationTokenSource = new CancellationTokenSource();
-            
+
             RegisterEventHandlers(libraryManager, logger, itemRepository, jsonSerializer, mediaProbeManager);
             RegisterUnobservedTaskExceptionHandler(logger);
         }
@@ -109,7 +110,7 @@ namespace StrmTool
                     logger, libraryManager, itemRepository, mediaProbeManager, jsonSerializer, mediaInfoManager);
                 var config = GetSafeConfiguration();
                 _eventHandler = new ItemAddedEventHandler(
-                    logger, libraryManager, itemRepository, jsonSerializer, mediaProbeManager, 
+                    logger, libraryManager, itemRepository, jsonSerializer, mediaProbeManager,
                     _cancellationTokenSource, mediaInfoManager, strmFileProcessor);
                 libraryManager.ItemAdded += _eventHandler.OnItemAdded;
 
@@ -184,9 +185,9 @@ namespace StrmTool
 
                 UnregisterUnobservedTaskExceptionHandler();
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // 忽略卸载时的错误
+                Debug.WriteLine($"StrmTool: Error unregistering event handlers: {ex.Message}");
             }
             finally
             {
@@ -276,6 +277,7 @@ namespace StrmTool
 
     public class PluginConfiguration : BasePluginConfiguration
     {
+        // 默认启用自动提取，处理延迟为2000ms，最大并发数为3，这里是插件默认配置，用户可以在插件设置界面修改这些值
         private bool _enableAutoExtract = true;
         private int _processingDelayMs = 2000;
         private int _maxConcurrency = 3;
@@ -299,7 +301,7 @@ namespace StrmTool
             set => _maxConcurrency = Math.Clamp(value, 1, 10);
         }
 
-        public bool IsValid => _isValid && 
+        public bool IsValid => _isValid &&
             _processingDelayMs >= 0 && _processingDelayMs <= 20000 &&
             _maxConcurrency >= 1 && _maxConcurrency <= 10;
     }

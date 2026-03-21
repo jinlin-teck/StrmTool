@@ -74,7 +74,7 @@ namespace StrmTool.Handlers
 
         public void OnItemAdded(object sender, ItemChangeEventArgs e)
         {
-            if (e.Item == null || string.IsNullOrEmpty(e.Item.Path) || 
+            if (e.Item == null || string.IsNullOrEmpty(e.Item.Path) ||
                 !MediaInfoHelper.IsStrmFile(e.Item.Path))
             {
                 return;
@@ -92,7 +92,7 @@ namespace StrmTool.Handlers
                 return;
             }
 
-            Common.LogHelper.Info(_logger, $"New strm file detected: {e.Item.Name}");
+            Common.LogHelper.Info(_logger, $"New strm file detected: {e.Item.Name}, delay: {config.ProcessingDelayMs}ms");
 
             if (MediaInfoHelper.HasCompleteMediaInfo(e.Item))
             {
@@ -111,9 +111,9 @@ namespace StrmTool.Handlers
             }
 
             var cancellationToken = _cancellationTokenSource?.Token ?? CancellationToken.None;
-            
+
             // 使用有限并发控制处理新文件
-            _ = Task.Run(async () => 
+            _ = Task.Run(async () =>
             {
                 try
                 {
@@ -139,6 +139,7 @@ namespace StrmTool.Handlers
 
             var config = Plugin.GetSafeConfiguration();
             var delayMs = config.ProcessingDelayMs;
+            Common.LogHelper.Debug(_logger, $"Applying delay: {delayMs}ms before processing {item.Name}");
             await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
 
             if (cancellationToken.IsCancellationRequested)

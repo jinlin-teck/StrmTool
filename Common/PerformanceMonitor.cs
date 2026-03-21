@@ -36,7 +36,7 @@ namespace StrmTool.Common
             var message = string.IsNullOrEmpty(_itemName)
                 ? $"{_operationName} completed in {elapsed}ms"
                 : $"{_operationName} for {_itemName} completed in {elapsed}ms";
-            
+
             if (elapsed > 5000)
             {
                 Common.LogHelper.Warn(_logger, message);

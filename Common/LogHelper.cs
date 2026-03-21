@@ -48,7 +48,7 @@ namespace StrmTool.Common
         public static void ErrorException(ILogger logger, string message, Exception exception)
         {
             var errorMessage = $"{LogPrefix} - {message}";
-            
+
             if (exception != null)
             {
                 logger.ErrorException(errorMessage, exception);

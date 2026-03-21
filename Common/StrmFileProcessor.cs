@@ -51,11 +51,11 @@ namespace StrmTool.Common
 
             try
             {
-                Common.LogHelper.Debug(_logger, $"Processing {item.Name}");
+                LogHelper.Debug(_logger, $"Processing {item.Name}");
 
                 if (MediaInfoHelper.HasCompleteMediaInfo(item))
                 {
-                    Common.LogHelper.Info(_logger, $"{item.Name} already has complete media info, skipping...");
+                    LogHelper.Info(_logger, $"{item.Name} already has complete media info, skipping...");
                     return ProcessResult.Skipped;
                 }
 
@@ -68,14 +68,14 @@ namespace StrmTool.Common
             }
             catch (Exception ex)
             {
-                Common.LogHelper.Error(_logger, $"Error processing {item.Name} ({item.Path}): {ex.Message}");
+                LogHelper.Error(_logger, $"Error processing {item.Name} ({item.Path}): {ex.Message}");
                 return ProcessResult.Failed;
             }
         }
 
         private async Task<ProcessResult> RestoreFromJsonAsync(BaseItem item, CancellationToken cancellationToken)
         {
-            Common.LogHelper.Debug(_logger, $"Found JSON file for {item.Name}, attempting to restore from JSON...");
+            LogHelper.Debug(_logger, $"Found JSON file for {item.Name}, attempting to restore from JSON...");
 
             await _mediaInfoManager.RestoreItemAsync(item, cancellationToken).ConfigureAwait(false);
 
@@ -83,16 +83,16 @@ namespace StrmTool.Common
             bool hasVideo = streams.Any(s => s.Type == MediaStreamType.Video);
             bool hasAudio = streams.Any(s => s.Type == MediaStreamType.Audio);
 
-            Common.LogHelper.Debug(_logger, $"{item.Name}: Restored from JSON. Video:{hasVideo}, Audio:{hasAudio}");
+            LogHelper.Debug(_logger, $"{item.Name}: Restored from JSON. Video:{hasVideo}, Audio:{hasAudio}");
             return ProcessResult.RestoredFromJson;
         }
 
         private async Task<ProcessResult> ExtractAndExportAsync(BaseItem item, CancellationToken cancellationToken)
         {
-            Common.LogHelper.Debug(_logger, $"No JSON file found for {item.Name}, probing media info...");
+            LogHelper.Debug(_logger, $"No JSON file found for {item.Name}, probing media info...");
 
             var beforeStreams = item.GetMediaStreams() ?? new List<MediaStream>();
-            Common.LogHelper.Debug(_logger, $"Before: {beforeStreams.Count} streams");
+            LogHelper.Debug(_logger, $"Before: {beforeStreams.Count} streams");
 
             var streams = await _mediaInfoService.ProbeAndSaveMediaStreamsAsync(item, cancellationToken).ConfigureAwait(false);
 
@@ -100,26 +100,26 @@ namespace StrmTool.Common
             bool hasVideo = streamList.Any(s => s.Type == MediaStreamType.Video);
             bool hasAudio = streamList.Any(s => s.Type == MediaStreamType.Audio);
 
-            Common.LogHelper.Info(_logger, $"{item.Name}: Probed media info. Streams {beforeStreams.Count}→{streams.Count}. Video:{hasVideo}, Audio:{hasAudio}");
+            LogHelper.Info(_logger, $"{item.Name}: Probed media info. Streams {beforeStreams.Count}→{streams.Count}. Video:{hasVideo}, Audio:{hasAudio}");
 
             // 只要有任意一种媒体流就算成功
             bool isSuccess = hasVideo || hasAudio;
 
             if (!isSuccess)
             {
-                Common.LogHelper.Warn(_logger, $"{item.Name} may still lack full media info");
+                LogHelper.Warn(_logger, $"{item.Name} may still lack full media info");
                 return ProcessResult.ExtractionFailed;
             }
 
             try
             {
                 await _mediaInfoManager.ExportItemAsync(item, cancellationToken).ConfigureAwait(false);
-                Common.LogHelper.Debug(_logger, $"{item.Name}: Media info exported to JSON file");
+                LogHelper.Debug(_logger, $"{item.Name}: Media info exported to JSON file");
                 return ProcessResult.ExtractedAndExported;
             }
             catch (Exception ex)
             {
-                Common.LogHelper.Error(_logger, $"Error exporting {item.Name} to JSON: {ex.Message}");
+                LogHelper.Error(_logger, $"Error exporting {item.Name} to JSON: {ex.Message}");
                 return ProcessResult.ExtractionFailed;
             }
         }
@@ -134,22 +134,22 @@ namespace StrmTool.Common
         /// 已跳过（已有完整信息）
         /// </summary>
         Skipped,
-        
+
         /// <summary>
         /// 从JSON恢复成功
         /// </summary>
         RestoredFromJson,
-        
+
         /// <summary>
         /// 提取并导出成功
         /// </summary>
         ExtractedAndExported,
-        
+
         /// <summary>
         /// 提取失败
         /// </summary>
         ExtractionFailed,
-        
+
         /// <summary>
         /// 处理失败
         /// </summary>

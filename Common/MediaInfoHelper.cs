@@ -18,7 +18,7 @@ namespace StrmTool.Common
         /// <returns>是否为STRM文件</returns>
         public static bool IsStrmFile(string? path)
         {
-            return !string.IsNullOrEmpty(path) && 
+            return !string.IsNullOrEmpty(path) &&
                    path.EndsWith(".strm", System.StringComparison.OrdinalIgnoreCase);
         }
 

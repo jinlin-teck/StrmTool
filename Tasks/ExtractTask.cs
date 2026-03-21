@@ -22,8 +22,8 @@ namespace StrmTool.Tasks
         private readonly IJsonSerializer _jsonSerializer;
         private readonly IMediaProbeManager _mediaProbeManager;
 
-        public ExtractTask(ILibraryManager libraryManager, 
-            ILogger logger, 
+        public ExtractTask(ILibraryManager libraryManager,
+            ILogger logger,
             IItemRepository itemRepository,
             IJsonSerializer jsonSerializer,
             IMediaProbeManager mediaProbeManager)
@@ -59,7 +59,7 @@ namespace StrmTool.Tasks
             var config = Plugin.GetSafeConfiguration();
             var maxConcurrency = config.MaxConcurrency;
             var delayMs = config.ProcessingDelayMs;
-            
+
             using var semaphore = new SemaphoreSlim(maxConcurrency, maxConcurrency);
 
             var tasks = strmItems.Select(async item =>

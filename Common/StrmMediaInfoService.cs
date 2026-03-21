@@ -65,7 +65,7 @@ namespace StrmTool.Common
                 if (mediaInfo?.MediaStreams != null && mediaInfo.MediaStreams.Count > 0)
                 {
                     _itemRepository.SaveMediaStreams(item.InternalId, mediaInfo.MediaStreams, cancellationToken);
-                    
+
                     item.Size = mediaInfo.Size.GetValueOrDefault();
                     item.RunTimeTicks = mediaInfo.RunTimeTicks;
                     item.Container = mediaInfo.Container;
@@ -81,7 +81,7 @@ namespace StrmTool.Common
 
                     _libraryManager.UpdateItems(new List<BaseItem> { item }, null,
                         ItemUpdateType.MetadataImport, false, false, null, cancellationToken);
-                    
+
                     Common.LogHelper.Debug(_logger, $"Successfully saved {mediaInfo.MediaStreams.Count} media streams and updated item properties for {fileName}");
                     return mediaInfo.MediaStreams.ToList();
                 }
@@ -116,11 +116,11 @@ namespace StrmTool.Common
             // 排除空字符串和明显无效的内容（如注释行）
             if (string.IsNullOrWhiteSpace(path))
                 return false;
-            
+
             // 排除以 # 开头的注释行
             if (path.TrimStart().StartsWith("#", StringComparison.Ordinal))
                 return false;
-            
+
             // 其他所有非空内容都认为是有效的，交给Emby处理
             // 支持格式：
             // - URL: http://, https://, rtmp://, rtsp://, ftp://
@@ -140,7 +140,7 @@ namespace StrmTool.Common
                     Common.LogHelper.Warn(logger, $"STRM file not found: {strmFilePath}");
                     return string.Empty;
                 }
-                
+
                 using var stream = File.OpenText(strmFilePath);
                 string? line;
                 while ((line = stream.ReadLine()) != null)

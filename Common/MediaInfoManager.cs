@@ -63,8 +63,7 @@ namespace StrmTool.Common
                 try
                 {
                     string filePath = GetMediaInfoJsonPath(item);
-                    // 使用 Task.Run 包装同步的 File.Exists 以避免阻塞线程池
-                    bool fileExists = await Task.Run(() => File.Exists(filePath), cancellationToken).ConfigureAwait(false);
+                    bool fileExists = File.Exists(filePath);
                     if (fileExists)
                     {
                         skipped++;
@@ -124,9 +123,9 @@ namespace StrmTool.Common
 
             var mediaSourcesWithChapters = mediaSources.Select(mediaSource =>
                     new MediaSourceWithChapters
-                    { 
-                        MediaSourceInfo = mediaSource, 
-                        Chapters = chapters 
+                    {
+                        MediaSourceInfo = mediaSource,
+                        Chapters = chapters
                     })
                 .ToList();
 
@@ -268,7 +267,7 @@ namespace StrmTool.Common
 
                 var jsonFilePath = GetMediaInfoJsonPath(item);
                 var mediaSourceWithChapters = await LoadAndValidateMediaSourceAsync(jsonFilePath, cancellationToken).ConfigureAwait(false);
-                
+
                 if (mediaSourceWithChapters == null)
                     return;
 
@@ -331,7 +330,7 @@ namespace StrmTool.Common
         }
 
         private async Task RestoreMediaDataAsync(
-            BaseItem item, MediaSourceWithChapters mediaSourceWithChapters, 
+            BaseItem item, MediaSourceWithChapters mediaSourceWithChapters,
             string jsonFilePath, CancellationToken cancellationToken)
         {
             RestoreMediaStreams(item, mediaSourceWithChapters, cancellationToken);
@@ -363,7 +362,7 @@ namespace StrmTool.Common
                     var audioImageDir = Path.Combine(Path.GetDirectoryName(item.Path) ?? Path.GetTempPath(), ".metadata");
                     Directory.CreateDirectory(audioImageDir);
                     var imagePath = Path.Combine(audioImageDir, $"{Path.GetFileNameWithoutExtension(item.Path)}.jpg");
-                    
+
                     if (File.Exists(imagePath))
                     {
                         try
@@ -379,7 +378,7 @@ namespace StrmTool.Common
                             Common.LogHelper.Warn(_logger, $"Permission denied when deleting image: {authEx.Message}");
                         }
                     }
-                    
+
                     await File.WriteAllBytesAsync(imagePath, imageBytes, cancellationToken).ConfigureAwait(false);
                     Common.LogHelper.Debug(_logger, $"Restored embedded image for audio file {item.Name}");
                 }
