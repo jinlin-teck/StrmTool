@@ -92,7 +92,7 @@ namespace StrmTool.Handlers
                 return;
             }
 
-            Common.LogHelper.Info(_logger, $"New strm file detected: {e.Item.Name}, delay: {config.ProcessingDelayMs}ms");
+            Common.LogHelper.Info(_logger, $"New strm file detected: {e.Item.Name}");
 
             if (MediaInfoHelper.HasCompleteMediaInfo(e.Item))
             {
@@ -137,17 +137,21 @@ namespace StrmTool.Handlers
                 return;
             }
 
-            var config = Plugin.GetSafeConfiguration();
-            var delayMs = config.ProcessingDelayMs;
-            Common.LogHelper.Debug(_logger, $"Applying delay: {delayMs}ms before processing {item.Name}");
-            await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
-
-            if (cancellationToken.IsCancellationRequested)
+            // 从JSON恢复是纯本地操作，无需延迟；只有真实探测远程媒体信息时才应用延迟
+            var canRestoreFromJson = MediaInfoHelper.ShouldRestoreFromJson(item, _mediaInfoManager);
+            if (!canRestoreFromJson)
             {
-                return;
+                var config = Plugin.GetSafeConfiguration();
+                var delayMs = config.ProcessingDelayMs;
+                Common.LogHelper.Debug(_logger, $"Applying delay: {delayMs}ms before processing {item.Name}");
+                await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
+
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
             }
 
-            await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
                 if (cancellationToken.IsCancellationRequested)
@@ -155,7 +159,27 @@ namespace StrmTool.Handlers
                     return;
                 }
 
-                await ProcessItemAsync(item, cancellationToken).ConfigureAwait(false);
+                if (canRestoreFromJson)
+                {
+                    // 本地JSON恢复不受并发信号量限制，可并行执行
+                    await ProcessItemAsync(item, cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+
+                await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    await ProcessItemAsync(item, cancellationToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    _semaphore.Release();
+                }
             }
             catch (OperationCanceledException)
             {
@@ -164,10 +188,6 @@ namespace StrmTool.Handlers
             catch (Exception ex)
             {
                 Common.LogHelper.Error(_logger, $"Error processing item {item.Name}: {ex.Message}");
-            }
-            finally
-            {
-                _semaphore.Release();
             }
         }
 

@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFrameworks>netstandard2.1</TargetFrameworks>
-    <AssemblyVersion>2.5.1</AssemblyVersion>
-    <FileVersion>2.5.1</FileVersion>
+    <AssemblyVersion>2.5.2</AssemblyVersion>
+    <FileVersion>2.5.2</FileVersion>
     <RootNamespace>StrmTool</RootNamespace>
     <AssemblyName>StrmTool</AssemblyName>
     <Nullable>enable</Nullable>

@@ -45,7 +45,7 @@ v2.5.1开始提供配置页面，在emby设置面板插件栏找到本插件，�
 | 配置项               | 说明                                     | 默认值 |
 | -------------------- | ---------------------------------------- | ------ |
 | **启用自动提取**     | 检测到新 STRM 文件时是否自动提取媒体信息 | true   |
-| **处理延迟（毫秒）** | 每个文件处理之间的延迟时间（毫秒）       | 2000   |
+| **处理延迟（毫秒）** | 探测远程媒体信息前的延迟时间（毫秒），从 JSON 恢复不延迟 | 2000   |
 | **最大并发数**       | 同时处理的最大文件数量                   | 3      |
 
 其他说明：
@@ -118,7 +118,7 @@ Starting from v2.5.1, a configuration page is available. Locate this plugin in t
 | Configuration Option      | Description                                                         | Default Value |
 | ------------------------- | ------------------------------------------------------------------- | ------------- |
 | **Enable Auto Extract**   | Whether to auto-extract media info when new strm files are detected | true          |
-| **Processing Delay (ms)** | Delay between processing each file (ms)                             | 2000          |
+| **Processing Delay (ms)** | Delay before probing remote media info (ms); restoring from JSON is not delayed | 2000          |
 | **Max Concurrency**       | Maximum number of files to process simultaneously                   | 3             |
 
 Additional notes:
