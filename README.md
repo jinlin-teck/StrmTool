@@ -2,6 +2,8 @@
 
 Jellyfin 插件，用于从 strm 文件中提取媒体技术信息（codec、分辨率、字幕），加速 strm 媒体文件的起播速度。
 
+> **推荐搭配**：如果你还需要从 OpenList/Alist 网盘批量生成 strm 文件，可参考本人另外一个项目：[openlist-strm](https://github.com/jinlin-teck/openlist-strm)——从 OpenList/Alist 目录生成 .strm 文件的轻量服务，带 WebUI，配合本插件可在 Jellyfin 上完美播放 strm 媒体文件。
+
 ## 核心功能
 
 1. **媒体信息提前提取**：在 strm 文件入库后立即向远程服务器请求并获取媒体技术信息（音视频编码、分辨率、字幕等）
@@ -52,6 +54,8 @@ Jellyfin 插件，用于从 strm 文件中提取媒体技术信息（codec、分
 # StrmTool for Jellyfin
 
 Jellyfin plugin for extracting media technical information (codec, resolution, subtitles) from strm files to accelerate playback startup speed.
+
+> **Recommended companion**: If you also need to batch-generate strm files from OpenList/Alist, check out my other project: [openlist-strm](https://github.com/jinlin-teck/openlist-strm) — a lightweight service with WebUI that generates .strm files from OpenList/Alist directories. Combined with this plugin, you can play strm media files perfectly on Jellyfin.
 
 🎉 **v2.2.0 Update**: New Size protection mechanism! Automatically restores from cache when metadata like Size of strm files is accidentally reset; also optimizes code structure and error handling.
 
