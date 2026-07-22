@@ -4,6 +4,8 @@
 
 如果你想用在Jellyfin上，请移步Jellyfin分支：https://github.com/jinlin-teck/StrmTool/tree/jellyfin
 
+> **推荐搭配**：如果你还需要从 OpenList/Alist 网盘批量生成 strm 文件，可参考本人另外一个项目：[openlist-strm](https://github.com/jinlin-teck/openlist-strm)——从 OpenList/Alist 目录生成 .strm 文件的轻量服务，带 WebUI，配合本插件可在 Emby/Jellyfin 上完美播放 strm 媒体文件。
+
 ## 功能特性
 
 ### 🚀 媒体信息提取与加速
@@ -76,6 +78,8 @@ v2.5.1开始提供配置页面，在emby设置面板插件栏找到本插件，�
 A plugin designed specifically for Emby media server to optimize strm file media information management and playback experience.
 
 If you want to use it with Jellyfin, please go to the Jellyfin branch: https://github.com/jinlin-teck/StrmTool/tree/jellyfin
+
+> **Recommended companion**: If you also need to batch-generate strm files from OpenList/Alist, check out my other project: [openlist-strm](https://github.com/jinlin-teck/openlist-strm) — a lightweight service with WebUI that generates .strm files from OpenList/Alist directories. Combined with this plugin, you can play strm media files perfectly on Emby/Jellyfin.
 
 ## Features
 
