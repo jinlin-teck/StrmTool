@@ -54,25 +54,6 @@ namespace StrmTool
         private ILibraryManager? _libraryManager;
         private CancellationTokenSource? _cancellationTokenSource;
         private bool _disposed;
-        private static IJsonSerializer? _jsonSerializer;
-        public static IJsonSerializer? JsonSerializer
-        {
-            get
-            {
-                lock (_lock)
-                {
-                    return _jsonSerializer;
-                }
-            }
-            private set
-            {
-                lock (_lock)
-                {
-                    _jsonSerializer = value;
-                }
-            }
-        }
-        private EventHandler<UnobservedTaskExceptionEventArgs>? _unobservedTaskExceptionHandler;
 
         public Plugin(
             IApplicationPaths applicationPaths,
@@ -87,13 +68,11 @@ namespace StrmTool
             lock (_lock)
             {
                 Instance = this;
-                JsonSerializer = jsonSerializer;
             }
             _libraryManager = libraryManager;
             _cancellationTokenSource = new CancellationTokenSource();
 
             RegisterEventHandlers(libraryManager, logger, itemRepository, jsonSerializer, mediaProbeManager);
-            RegisterUnobservedTaskExceptionHandler(logger);
         }
 
         private void RegisterEventHandlers(
@@ -108,7 +87,6 @@ namespace StrmTool
                 var mediaInfoManager = new MediaInfoManager(logger, libraryManager, itemRepository, jsonSerializer);
                 var strmFileProcessor = new StrmFileProcessor(
                     logger, libraryManager, itemRepository, mediaProbeManager, jsonSerializer, mediaInfoManager);
-                var config = GetSafeConfiguration();
                 _eventHandler = new ItemAddedEventHandler(
                     logger, libraryManager, itemRepository, jsonSerializer, mediaProbeManager,
                     _cancellationTokenSource, mediaInfoManager, strmFileProcessor);
@@ -144,29 +122,6 @@ namespace StrmTool
         }
 
         /// <summary>
-        /// 注册未观察任务异常处理器，防止未捕获的异常导致应用崩溃
-        /// </summary>
-        private void RegisterUnobservedTaskExceptionHandler(ILogger logger)
-        {
-            try
-            {
-                _unobservedTaskExceptionHandler = (sender, e) =>
-                {
-                    Common.LogHelper.Error(logger, $"Unobserved task exception: {e.Exception?.Message}");
-                    e.SetObserved();
-                };
-                TaskScheduler.UnobservedTaskException += _unobservedTaskExceptionHandler;
-                Common.LogHelper.Info(logger, "Unobserved task exception handler registered");
-            }
-            catch (Exception ex)
-            {
-                Common.LogHelper.Error(logger, $"Error registering unobserved task exception handler: {ex.Message}");
-            }
-        }
-
-
-
-        /// <summary>
         /// 清理事件处理器，防止内存泄漏
         /// </summary>
         public void UnregisterEventHandlers()
@@ -183,7 +138,6 @@ namespace StrmTool
                     _cancellationTokenSource.Cancel();
                 }
 
-                UnregisterUnobservedTaskExceptionHandler();
             }
             catch (Exception ex)
             {
@@ -194,24 +148,6 @@ namespace StrmTool
                 _eventHandler?.Dispose();
                 _eventHandler = null;
                 _libraryManager = null;
-            }
-        }
-
-        /// <summary>
-        /// 注销未观察任务异常处理器
-        /// </summary>
-        private void UnregisterUnobservedTaskExceptionHandler()
-        {
-            try
-            {
-                if (_unobservedTaskExceptionHandler != null)
-                {
-                    TaskScheduler.UnobservedTaskException -= _unobservedTaskExceptionHandler;
-                }
-            }
-            catch (Exception)
-            {
-                // 忽略卸载时的错误
             }
         }
 
@@ -279,8 +215,8 @@ namespace StrmTool
     {
         // 默认启用自动提取，处理延迟为2000ms，最大并发数为3，这里是插件默认配置，用户可以在插件设置界面修改这些值
         private bool _enableAutoExtract = true;
-        private int _processingDelayMs = 2000;
-        private int _maxConcurrency = 3;
+        private int _processingDelayMs = CommonConfiguration.StandardProcessingDelayMs;
+        private int _maxConcurrency = CommonConfiguration.MaxConcurrency;
         private bool _isValid = true;
 
         public bool EnableAutoExtract

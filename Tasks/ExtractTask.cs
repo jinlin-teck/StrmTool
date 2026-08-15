@@ -73,19 +73,19 @@ namespace StrmTool.Tasks
                     }
 
                     await processor.ProcessStrmFileAsync(item, cancellationToken).ConfigureAwait(false);
-
-                    var count = Interlocked.Increment(ref processed);
-                    var progressValue = (double)count / total * 100;
-                    progress.Report(progressValue);
-
-                    if (count < total)
-                    {
-                        await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
-                    }
                 }
                 finally
                 {
                     semaphore.Release();
+                }
+
+                var count = Interlocked.Increment(ref processed);
+                var progressValue = (double)count / total * 100;
+                progress.Report(progressValue);
+
+                if (delayMs > 0)
+                {
+                    await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
                 }
             });
 

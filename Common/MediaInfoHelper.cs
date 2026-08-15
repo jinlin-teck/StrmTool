@@ -1,8 +1,11 @@
+using System.Threading;
 using System.Collections.Generic;
 using System.Linq;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.MediaInfo;
 
 namespace StrmTool.Common
 {
@@ -31,6 +34,31 @@ namespace StrmTool.Common
             if (item == null) return false;
             var streams = item.GetMediaStreams() ?? new List<MediaStream>();
             return streams.Any(s => s.Type == MediaStreamType.Video || s.Type == MediaStreamType.Audio);
+        }
+
+        /// <summary>
+        /// 将媒体源中的媒体属性写回项目并持久化。
+        /// </summary>
+        public static void ApplyMediaSourceInfo(
+            BaseItem item,
+            MediaSourceInfo mediaSourceInfo,
+            ILibraryManager libraryManager,
+            CancellationToken cancellationToken)
+        {
+            item.Size = mediaSourceInfo.Size.GetValueOrDefault();
+            item.RunTimeTicks = mediaSourceInfo.RunTimeTicks;
+            item.Container = mediaSourceInfo.Container;
+            item.TotalBitrate = mediaSourceInfo.Bitrate.GetValueOrDefault();
+
+            var videoStream = GetHighestResolutionVideoStream(mediaSourceInfo.MediaStreams);
+            if (videoStream != null)
+            {
+                item.Width = videoStream.Width ?? 0;
+                item.Height = videoStream.Height ?? 0;
+            }
+
+            libraryManager.UpdateItems(new List<BaseItem> { item }, null,
+                ItemUpdateType.MetadataImport, false, false, null, cancellationToken);
         }
 
         /// <summary>

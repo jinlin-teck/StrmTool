@@ -45,7 +45,10 @@ namespace StrmTool.Common
         /// <summary>
         /// 处理单个STRM文件
         /// </summary>
-        public async Task<ProcessResult> ProcessStrmFileAsync(BaseItem item, CancellationToken cancellationToken = default)
+        public async Task<ProcessResult> ProcessStrmFileAsync(
+            BaseItem item,
+            CancellationToken cancellationToken = default,
+            bool? shouldRestoreFromJson = null)
         {
             using var monitor = new PerformanceMonitor(_logger, "Processing", item.Name);
 
@@ -59,7 +62,9 @@ namespace StrmTool.Common
                     return ProcessResult.Skipped;
                 }
 
-                if (MediaInfoHelper.ShouldRestoreFromJson(item, _mediaInfoManager))
+                var restoreFromJson = shouldRestoreFromJson ??
+                    MediaInfoHelper.ShouldRestoreFromJson(item, _mediaInfoManager);
+                if (restoreFromJson)
                 {
                     return await RestoreFromJsonAsync(item, cancellationToken);
                 }
@@ -77,7 +82,12 @@ namespace StrmTool.Common
         {
             LogHelper.Debug(_logger, $"Found JSON file for {item.Name}, attempting to restore from JSON...");
 
-            await _mediaInfoManager.RestoreItemAsync(item, cancellationToken).ConfigureAwait(false);
+            var restored = await _mediaInfoManager.RestoreItemAsync(item, cancellationToken).ConfigureAwait(false);
+            if (!restored)
+            {
+                LogHelper.Warn(_logger, $"JSON restore failed for {item.Name}; falling back to media probing");
+                return await ExtractAndExportAsync(item, cancellationToken).ConfigureAwait(false);
+            }
 
             var streams = item.GetMediaStreams() ?? new List<MediaStream>();
             bool hasVideo = streams.Any(s => s.Type == MediaStreamType.Video);
@@ -89,7 +99,7 @@ namespace StrmTool.Common
 
         private async Task<ProcessResult> ExtractAndExportAsync(BaseItem item, CancellationToken cancellationToken)
         {
-            LogHelper.Debug(_logger, $"No JSON file found for {item.Name}, probing media info...");
+            LogHelper.Debug(_logger, $"Probing media info for {item.Name}...");
 
             var beforeStreams = item.GetMediaStreams() ?? new List<MediaStream>();
             LogHelper.Debug(_logger, $"Before: {beforeStreams.Count} streams");
@@ -111,17 +121,15 @@ namespace StrmTool.Common
                 return ProcessResult.ExtractionFailed;
             }
 
-            try
+            var exportSucceeded = await _mediaInfoManager.ExportItemAsync(item, cancellationToken).ConfigureAwait(false);
+            if (!exportSucceeded)
             {
-                await _mediaInfoManager.ExportItemAsync(item, cancellationToken).ConfigureAwait(false);
-                LogHelper.Debug(_logger, $"{item.Name}: Media info exported to JSON file");
-                return ProcessResult.ExtractedAndExported;
-            }
-            catch (Exception ex)
-            {
-                LogHelper.Error(_logger, $"Error exporting {item.Name} to JSON: {ex.Message}");
+                LogHelper.Warn(_logger, $"{item.Name}: Media info extraction succeeded but JSON export failed");
                 return ProcessResult.ExtractionFailed;
             }
+
+            LogHelper.Debug(_logger, $"{item.Name}: Media info exported to JSON file");
+            return ProcessResult.ExtractedAndExported;
         }
     }
 

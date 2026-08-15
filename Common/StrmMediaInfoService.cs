@@ -66,21 +66,7 @@ namespace StrmTool.Common
                 {
                     _itemRepository.SaveMediaStreams(item.InternalId, mediaInfo.MediaStreams, cancellationToken);
 
-                    item.Size = mediaInfo.Size.GetValueOrDefault();
-                    item.RunTimeTicks = mediaInfo.RunTimeTicks;
-                    item.Container = mediaInfo.Container;
-                    item.TotalBitrate = mediaInfo.Bitrate.GetValueOrDefault();
-
-                    var videoStream = MediaInfoHelper.GetHighestResolutionVideoStream(mediaInfo.MediaStreams);
-
-                    if (videoStream != null)
-                    {
-                        item.Width = videoStream.Width ?? 0;
-                        item.Height = videoStream.Height ?? 0;
-                    }
-
-                    _libraryManager.UpdateItems(new List<BaseItem> { item }, null,
-                        ItemUpdateType.MetadataImport, false, false, null, cancellationToken);
+                    MediaInfoHelper.ApplyMediaSourceInfo(item, mediaInfo, _libraryManager, cancellationToken);
 
                     Common.LogHelper.Debug(_logger, $"Successfully saved {mediaInfo.MediaStreams.Count} media streams and updated item properties for {fileName}");
                     return mediaInfo.MediaStreams.ToList();

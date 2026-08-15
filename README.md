@@ -2,6 +2,8 @@
 
 一款专为 Emby 媒体服务器设计的插件，用于优化 strm 文件的媒体信息管理和播放体验。
 
+当前版本：v2.5.3
+
 如果你想用在Jellyfin上，请移步Jellyfin分支：https://github.com/jinlin-teck/StrmTool/tree/jellyfin
 
 > **推荐搭配**：如果你还需要从 OpenList/Alist 网盘批量生成 strm 文件，可参考本人另外一个项目：[openlist-strm](https://github.com/jinlin-teck/openlist-strm)——从 OpenList/Alist 目录生成 .strm 文件的轻量服务，带 WebUI，配合本插件可在 Emby/Jellyfin 上完美播放 strm 媒体文件。
@@ -76,6 +78,8 @@ v2.5.1开始提供配置页面，在emby设置面板插件栏找到本插件，�
 # StrmTool for Emby
 
 A plugin designed specifically for Emby media server to optimize strm file media information management and playback experience.
+
+Current version: v2.5.3
 
 If you want to use it with Jellyfin, please go to the Jellyfin branch: https://github.com/jinlin-teck/StrmTool/tree/jellyfin
 

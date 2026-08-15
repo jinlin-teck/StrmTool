@@ -94,12 +94,6 @@ namespace StrmTool.Handlers
 
             Common.LogHelper.Info(_logger, $"New strm file detected: {e.Item.Name}");
 
-            if (MediaInfoHelper.HasCompleteMediaInfo(e.Item))
-            {
-                Common.LogHelper.Debug(_logger, $"{e.Item.Name} already has complete media info, skipping");
-                return;
-            }
-
             Common.LogHelper.Debug(_logger, $"Processing new strm file: {e.Item.Name}");
 
             // 检查待处理任务数量，防止内存压力
@@ -162,7 +156,7 @@ namespace StrmTool.Handlers
                 if (canRestoreFromJson)
                 {
                     // 本地JSON恢复不受并发信号量限制，可并行执行
-                    await ProcessItemAsync(item, cancellationToken).ConfigureAwait(false);
+                    await ProcessItemAsync(item, cancellationToken, canRestoreFromJson).ConfigureAwait(false);
                     return;
                 }
 
@@ -174,7 +168,7 @@ namespace StrmTool.Handlers
                         return;
                     }
 
-                    await ProcessItemAsync(item, cancellationToken).ConfigureAwait(false);
+                    await ProcessItemAsync(item, cancellationToken, canRestoreFromJson).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -191,9 +185,12 @@ namespace StrmTool.Handlers
             }
         }
 
-        private async Task ProcessItemAsync(BaseItem item, CancellationToken cancellationToken)
+        private async Task ProcessItemAsync(
+            BaseItem item, CancellationToken cancellationToken, bool shouldRestoreFromJson)
         {
-            var result = await _strmFileProcessor.ProcessStrmFileAsync(item, cancellationToken).ConfigureAwait(false);
+            var result = await _strmFileProcessor
+                .ProcessStrmFileAsync(item, cancellationToken, shouldRestoreFromJson)
+                .ConfigureAwait(false);
             LogProcessResult(item.Name, result);
         }
 

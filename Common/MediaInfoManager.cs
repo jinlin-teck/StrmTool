@@ -46,7 +46,7 @@ namespace StrmTool.Common
             var allItems = MediaInfoHelper.GetAllStrmFiles(_libraryManager);
             Common.LogHelper.Info(_logger, $"Found {allItems.Count} STRM files");
 
-            var validItems = MediaInfoHelper.GetStrmFilesWithCompleteMediaInfo(_libraryManager).ToArray();
+            var validItems = allItems.Where(MediaInfoHelper.HasCompleteMediaInfo).ToArray();
 
             int total = validItems.Length;
             int current = 0;
@@ -71,9 +71,16 @@ namespace StrmTool.Common
                     }
                     else
                     {
-                        await ExportItemAsync(item, cancellationToken).ConfigureAwait(false);
-                        Common.LogHelper.Info(_logger, $"Successfully exported {item.Name} to: {filePath}");
-                        exported++;
+                        var exportSucceeded = await ExportItemAsync(item, cancellationToken).ConfigureAwait(false);
+                        if (exportSucceeded)
+                        {
+                            Common.LogHelper.Info(_logger, $"Successfully exported {item.Name} to: {filePath}");
+                            exported++;
+                        }
+                        else
+                        {
+                            Common.LogHelper.Warn(_logger, $"Failed to export {item.Name} to: {filePath}");
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -91,20 +98,32 @@ namespace StrmTool.Common
         /// <summary>
         /// 导出单个媒体项信息为 JSON 文件。
         /// </summary>
-        public async Task ExportItemAsync(BaseItem item, CancellationToken cancellationToken = default)
+        public async Task<bool> ExportItemAsync(BaseItem item, CancellationToken cancellationToken = default)
         {
             if (item == null)
-                return;
+                return false;
 
             try
             {
                 var mediaSourcesWithChapters = await PrepareMediaSourcesForExportAsync(item, cancellationToken).ConfigureAwait(false);
+                if (mediaSourcesWithChapters.Count == 0)
+                {
+                    Common.LogHelper.Warn(_logger, $"No media sources available for {item.Name}, skipping export");
+                    return false;
+                }
+
                 await WriteMediaInfoToFileAsync(item, mediaSourcesWithChapters, cancellationToken).ConfigureAwait(false);
                 Common.LogHelper.Debug(_logger, $"Exported {item.Name} → {GetMediaInfoJsonPath(item)}");
+                return true;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
                 Common.LogHelper.ErrorException(_logger, $"Error exporting media info for {item.Name}", ex);
+                return false;
             }
         }
 
@@ -193,6 +212,12 @@ namespace StrmTool.Common
             BaseItem item, List<MediaSourceWithChapters> mediaSourcesWithChapters, CancellationToken cancellationToken)
         {
             string filePath = GetMediaInfoJsonPath(item);
+            var directory = Path.GetDirectoryName(filePath);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
             var json = _jsonSerializer.SerializeToString(mediaSourcesWithChapters);
             await File.WriteAllTextAsync(filePath, json, cancellationToken).ConfigureAwait(false);
         }
@@ -207,7 +232,6 @@ namespace StrmTool.Common
             {
                 string safeName = MakeSafeFilename(item.Name);
                 var tempPath = Path.Combine(Path.GetTempPath(), "StrmTool");
-                Directory.CreateDirectory(tempPath);
                 return Path.Combine(tempPath, $"{safeName}{CommonConfiguration.MediaInfoFileExtension}");
             }
 
@@ -218,9 +242,6 @@ namespace StrmTool.Common
             }
 
             var jsonFilePath = Path.Combine(mediaDirectory, $"{mediaFileName}{CommonConfiguration.MediaInfoFileExtension}");
-
-            Directory.CreateDirectory(mediaDirectory);
-
             return jsonFilePath;
         }
 
@@ -240,13 +261,19 @@ namespace StrmTool.Common
                 if (cancellationToken.IsCancellationRequested)
                     break;
 
+                var restored = false;
                 try
                 {
-                    await RestoreItemAsync(item, cancellationToken).ConfigureAwait(false);
+                    restored = await RestoreItemAsync(item, cancellationToken).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
                     Common.LogHelper.ErrorException(_logger, $"Error restoring {item.Name}", ex);
+                }
+
+                if (!restored)
+                {
+                    Common.LogHelper.Warn(_logger, $"Failed to restore {item.Name} from JSON");
                 }
 
                 current++;
@@ -259,8 +286,11 @@ namespace StrmTool.Common
         /// <summary>
         /// 恢复单个媒体项信息从JSON文件
         /// </summary>
-        public async Task RestoreItemAsync(BaseItem item, CancellationToken cancellationToken = default)
+        public async Task<bool> RestoreItemAsync(BaseItem item, CancellationToken cancellationToken = default)
         {
+            if (item == null)
+                return false;
+
             try
             {
                 Common.LogHelper.Debug(_logger, $"Restoring media item: {item.Name} (Path: {item.Path})");
@@ -269,14 +299,20 @@ namespace StrmTool.Common
                 var mediaSourceWithChapters = await LoadAndValidateMediaSourceAsync(jsonFilePath, cancellationToken).ConfigureAwait(false);
 
                 if (mediaSourceWithChapters == null)
-                    return;
+                    return false;
 
-                await RestoreMediaDataAsync(item, mediaSourceWithChapters, jsonFilePath, cancellationToken).ConfigureAwait(false);
+                await RestoreMediaDataAsync(item, mediaSourceWithChapters, cancellationToken).ConfigureAwait(false);
                 Common.LogHelper.Info(_logger, $"Restore completed: {item.Name} ← {jsonFilePath}");
+                return true;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
                 Common.LogHelper.ErrorException(_logger, $"Error restoring media information for {item.Name}", ex);
+                return false;
             }
         }
 
@@ -295,35 +331,54 @@ namespace StrmTool.Common
                 var jsonContent = await File.ReadAllTextAsync(jsonFilePath, cancellationToken).ConfigureAwait(false);
                 mediaSourcesWithChapters = _jsonSerializer.DeserializeFromString<List<MediaSourceWithChapters>>(jsonContent);
             }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 Common.LogHelper.ErrorException(_logger, $"JSON deserialization failed for {jsonFilePath}. File may be corrupted.", ex);
+                MarkInvalidJsonFile(jsonFilePath, "JSON cannot be deserialized");
                 return null;
             }
 
             if (mediaSourcesWithChapters == null)
             {
-                Common.LogHelper.Warn(_logger, "JSON deserialization failed (null)");
-                return null;
+                return MarkInvalidJsonFile(jsonFilePath, "deserialized value is null");
             }
 
             if (mediaSourcesWithChapters.Count == 0)
             {
-                Common.LogHelper.Warn(_logger, "JSON deserialization succeeded but list is empty");
-                return null;
+                return MarkInvalidJsonFile(jsonFilePath, "media source list is empty");
             }
 
             var mediaSourceWithChapters = mediaSourcesWithChapters[0];
             if (mediaSourceWithChapters?.MediaSourceInfo == null)
             {
-                Common.LogHelper.Warn(_logger, "first media source contains null MediaSourceInfo");
-                return null;
+                return MarkInvalidJsonFile(jsonFilePath, "first media source has no MediaSourceInfo");
             }
 
-            if (!mediaSourceWithChapters.MediaSourceInfo.RunTimeTicks.HasValue)
+            var mediaSourceInfo = mediaSourceWithChapters.MediaSourceInfo;
+            if (!mediaSourceInfo.RunTimeTicks.HasValue)
             {
-                Common.LogHelper.Warn(_logger, $"JSON file is missing runtime information: {jsonFilePath}");
-                return null;
+                return MarkInvalidJsonFile(jsonFilePath, "MediaSourceInfo.RunTimeTicks is missing");
+            }
+
+            if (string.IsNullOrWhiteSpace(mediaSourceInfo.Container))
+            {
+                return MarkInvalidJsonFile(jsonFilePath, "MediaSourceInfo.Container is missing");
+            }
+
+            if (mediaSourceInfo.Size.GetValueOrDefault() <= 0)
+            {
+                return MarkInvalidJsonFile(jsonFilePath, "MediaSourceInfo.Size is missing or not positive");
+            }
+
+            if (mediaSourceInfo.MediaStreams == null ||
+                !mediaSourceInfo.MediaStreams.Any(stream =>
+                    stream.Type == MediaStreamType.Video || stream.Type == MediaStreamType.Audio))
+            {
+                return MarkInvalidJsonFile(jsonFilePath, "MediaSourceInfo.MediaStreams has no video or audio stream");
             }
 
             return mediaSourceWithChapters;
@@ -331,13 +386,16 @@ namespace StrmTool.Common
 
         private async Task RestoreMediaDataAsync(
             BaseItem item, MediaSourceWithChapters mediaSourceWithChapters,
-            string jsonFilePath, CancellationToken cancellationToken)
+            CancellationToken cancellationToken)
         {
             RestoreMediaStreams(item, mediaSourceWithChapters, cancellationToken);
             await RestoreAudioEmbeddedImageAsync(item, mediaSourceWithChapters, cancellationToken).ConfigureAwait(false);
-            UpdateItemProperties(item, mediaSourceWithChapters);
-            UpdateVideoResolution(item, mediaSourceWithChapters);
-            SaveItemToLibrary(item, cancellationToken);
+            if (mediaSourceWithChapters.MediaSourceInfo != null)
+            {
+                MediaInfoHelper.ApplyMediaSourceInfo(
+                    item, mediaSourceWithChapters.MediaSourceInfo, _libraryManager, cancellationToken);
+            }
+
             RestoreChapters(item, mediaSourceWithChapters);
             RestoreEpisodeInfo(item, mediaSourceWithChapters);
         }
@@ -389,34 +447,6 @@ namespace StrmTool.Common
             }
         }
 
-        private void UpdateItemProperties(BaseItem item, MediaSourceWithChapters mediaSourceWithChapters)
-        {
-            if (mediaSourceWithChapters.MediaSourceInfo != null)
-            {
-                item.Size = mediaSourceWithChapters.MediaSourceInfo.Size.GetValueOrDefault();
-                item.RunTimeTicks = mediaSourceWithChapters.MediaSourceInfo.RunTimeTicks;
-                item.Container = mediaSourceWithChapters.MediaSourceInfo.Container;
-                item.TotalBitrate = mediaSourceWithChapters.MediaSourceInfo.Bitrate.GetValueOrDefault();
-            }
-        }
-
-        private void UpdateVideoResolution(BaseItem item, MediaSourceWithChapters mediaSourceWithChapters)
-        {
-            var videoStream = MediaInfoHelper.GetHighestResolutionVideoStream(mediaSourceWithChapters.MediaSourceInfo?.MediaStreams);
-
-            if (videoStream != null)
-            {
-                item.Width = videoStream.Width ?? 0;
-                item.Height = videoStream.Height ?? 0;
-            }
-        }
-
-        private void SaveItemToLibrary(BaseItem item, CancellationToken cancellationToken)
-        {
-            _libraryManager.UpdateItems(new List<BaseItem> { item }, null,
-                ItemUpdateType.MetadataImport, false, false, null, cancellationToken);
-        }
-
         private void RestoreChapters(BaseItem item, MediaSourceWithChapters mediaSourceWithChapters)
         {
             if (item is MediaBrowser.Controller.Entities.Video video && mediaSourceWithChapters.Chapters != null)
@@ -446,6 +476,35 @@ namespace StrmTool.Common
                 sb.Replace(c, '_');
             }
             return sb.ToString();
+        }
+
+        private MediaSourceWithChapters? MarkInvalidJsonFile(string jsonFilePath, string reason)
+        {
+            Common.LogHelper.Warn(_logger, $"Invalid media info JSON ({reason}): {jsonFilePath}");
+
+            try
+            {
+                if (!File.Exists(jsonFilePath))
+                {
+                    return null;
+                }
+
+                var backupPath = $"{jsonFilePath}.bak";
+                var suffix = 1;
+                while (File.Exists(backupPath))
+                {
+                    backupPath = $"{jsonFilePath}.{suffix++}.bak";
+                }
+
+                File.Move(jsonFilePath, backupPath);
+                Common.LogHelper.Warn(_logger, $"Invalid media info JSON moved to: {backupPath}");
+            }
+            catch (Exception ex)
+            {
+                Common.LogHelper.Warn(_logger, $"Could not move invalid media info JSON to a .bak file: {ex.Message}");
+            }
+
+            return null;
         }
     }
 
