@@ -32,8 +32,47 @@ namespace StrmTool.Common
         public static bool HasCompleteMediaInfo(BaseItem? item)
         {
             if (item == null) return false;
-            var streams = item.GetMediaStreams() ?? new List<MediaStream>();
+            return HasCompleteMediaInfo(item.GetMediaStreams());
+        }
+
+        /// <summary>
+        /// 基于已获取的媒体流列表判断媒体信息是否完整，避免重复查询仓储
+        /// </summary>
+        public static bool HasCompleteMediaInfo(IEnumerable<MediaStream>? streams)
+        {
+            if (streams == null) return false;
             return streams.Any(s => s.Type == MediaStreamType.Video || s.Type == MediaStreamType.Audio);
+        }
+
+        /// <summary>
+        /// 获取媒体流列表中视频流/音频流的存在情况（单次遍历）
+        /// </summary>
+        public static (bool HasVideo, bool HasAudio) GetStreamSummary(IEnumerable<MediaStream>? streams)
+        {
+            bool hasVideo = false;
+            bool hasAudio = false;
+
+            if (streams != null)
+            {
+                foreach (var stream in streams)
+                {
+                    if (stream.Type == MediaStreamType.Video)
+                    {
+                        hasVideo = true;
+                    }
+                    else if (stream.Type == MediaStreamType.Audio)
+                    {
+                        hasAudio = true;
+                    }
+
+                    if (hasVideo && hasAudio)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            return (hasVideo, hasAudio);
         }
 
         /// <summary>
@@ -69,9 +108,6 @@ namespace StrmTool.Common
         /// <returns>是否存在JSON文件</returns>
         public static bool HasJsonFile(BaseItem item, MediaInfoManager mediaInfoManager)
         {
-            if (mediaInfoManager == null)
-                return false;
-
             var jsonFilePath = mediaInfoManager.GetMediaInfoJsonPath(item);
             return System.IO.File.Exists(jsonFilePath);
         }
@@ -81,9 +117,6 @@ namespace StrmTool.Common
         /// </summary>
         public static bool ShouldRestoreFromJson(BaseItem item, MediaInfoManager mediaInfoManager)
         {
-            if (mediaInfoManager == null)
-                return false;
-
             return !HasCompleteMediaInfo(item) && HasJsonFile(item, mediaInfoManager);
         }
 

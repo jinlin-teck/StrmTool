@@ -41,7 +41,7 @@ namespace StrmTool.Common
 
             try
             {
-                var strmContent = ReadStrmSourcePath(item.Path, _logger);
+                var strmContent = await ReadStrmSourcePathAsync(item.Path, _logger, cancellationToken).ConfigureAwait(false);
                 if (string.IsNullOrWhiteSpace(strmContent))
                 {
                     Common.LogHelper.Warn(_logger, $"STRM file is empty: {item.Path}");
@@ -75,6 +75,10 @@ namespace StrmTool.Common
                 Common.LogHelper.Debug(_logger, $"No media streams found for {fileName}");
                 return new List<MediaStream>();
             }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 Common.LogHelper.ErrorException(_logger, $"Error probing STRM content for {fileName}", ex);
@@ -84,14 +88,29 @@ namespace StrmTool.Common
 
         private static MediaProtocol GetProtocolFromPath(string path)
         {
-            return path?.ToLowerInvariant() switch
+            // 使用 OrdinalIgnoreCase 比较，避免 ToLowerInvariant 产生字符串分配
+            if (path.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                path.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
             {
-                var p when p?.StartsWith("http://") == true || p?.StartsWith("https://") == true => MediaProtocol.Http,
-                var p when p?.StartsWith("rtmp://") == true => MediaProtocol.Rtmp,
-                var p when p?.StartsWith("rtsp://") == true => MediaProtocol.Rtsp,
-                var p when p?.StartsWith("ftp://") == true => MediaProtocol.Ftp,
-                _ => MediaProtocol.File
-            };
+                return MediaProtocol.Http;
+            }
+
+            if (path.StartsWith("rtmp://", StringComparison.OrdinalIgnoreCase))
+            {
+                return MediaProtocol.Rtmp;
+            }
+
+            if (path.StartsWith("rtsp://", StringComparison.OrdinalIgnoreCase))
+            {
+                return MediaProtocol.Rtsp;
+            }
+
+            if (path.StartsWith("ftp://", StringComparison.OrdinalIgnoreCase))
+            {
+                return MediaProtocol.Ftp;
+            }
+
+            return MediaProtocol.File;
         }
 
         /// <summary>
@@ -117,7 +136,7 @@ namespace StrmTool.Common
             return true;
         }
 
-        private static string ReadStrmSourcePath(string strmFilePath, ILogger logger)
+        private static async Task<string> ReadStrmSourcePathAsync(string strmFilePath, ILogger logger, CancellationToken cancellationToken)
         {
             try
             {
@@ -127,10 +146,17 @@ namespace StrmTool.Common
                     return string.Empty;
                 }
 
-                using var stream = File.OpenText(strmFilePath);
+                using var reader = new StreamReader(strmFilePath);
                 string? line;
-                while ((line = stream.ReadLine()) != null)
+                while (true)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    line = await reader.ReadLineAsync().ConfigureAwait(false);
+                    if (line == null)
+                    {
+                        break;
+                    }
+
                     var sourcePath = line.Trim();
                     if (!string.IsNullOrWhiteSpace(sourcePath) && IsValidMediaPath(sourcePath))
                     {
@@ -139,6 +165,10 @@ namespace StrmTool.Common
                 }
 
                 return string.Empty;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (Exception ex)
             {

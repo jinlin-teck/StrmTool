@@ -14,13 +14,9 @@ namespace StrmTool.Handlers
     public class ItemAddedEventHandler : IDisposable
     {
         private readonly ILogger _logger;
-        private readonly ILibraryManager _libraryManager;
-        private readonly IItemRepository _itemRepository;
-        private readonly IJsonSerializer _jsonSerializer;
-        private readonly MediaInfoManager _mediaInfoManager;
-        private readonly IMediaProbeManager _mediaProbeManager;
         private readonly CancellationTokenSource? _cancellationTokenSource;
         private readonly SemaphoreSlim _semaphore;
+        private readonly MediaInfoManager _mediaInfoManager;
         private readonly StrmFileProcessor _strmFileProcessor;
         private int _pendingTaskCount;
         private const int MaxPendingTasks = 100;
@@ -37,10 +33,10 @@ namespace StrmTool.Handlers
             StrmFileProcessor? strmFileProcessor = null)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _libraryManager = libraryManager ?? throw new ArgumentNullException(nameof(libraryManager));
-            _itemRepository = itemRepository ?? throw new ArgumentNullException(nameof(itemRepository));
-            _jsonSerializer = jsonSerializer ?? throw new ArgumentNullException(nameof(jsonSerializer));
-            _mediaProbeManager = mediaProbeManager ?? throw new ArgumentNullException(nameof(mediaProbeManager));
+            if (libraryManager == null) throw new ArgumentNullException(nameof(libraryManager));
+            if (itemRepository == null) throw new ArgumentNullException(nameof(itemRepository));
+            if (jsonSerializer == null) throw new ArgumentNullException(nameof(jsonSerializer));
+            if (mediaProbeManager == null) throw new ArgumentNullException(nameof(mediaProbeManager));
             _cancellationTokenSource = cancellationTokenSource;
 
             // 使用用户配置的 MaxConcurrency，默认为3
@@ -85,6 +81,7 @@ namespace StrmTool.Handlers
                 return;
             }
 
+            // 每个事件只取一次配置
             var config = Plugin.GetSafeConfiguration();
             if (!config.EnableAutoExtract)
             {
@@ -92,9 +89,14 @@ namespace StrmTool.Handlers
                 return;
             }
 
-            Common.LogHelper.Info(_logger, $"New strm file detected: {e.Item.Name}");
+            // 已具备完整媒体信息的项无需排队，直接跳过（避免无意义的延迟和任务入队）
+            if (MediaInfoHelper.HasCompleteMediaInfo(e.Item))
+            {
+                Common.LogHelper.Debug(_logger, $"{e.Item.Name} already has complete media info, skipping");
+                return;
+            }
 
-            Common.LogHelper.Debug(_logger, $"Processing new strm file: {e.Item.Name}");
+            Common.LogHelper.Info(_logger, $"New strm file detected: {e.Item.Name}");
 
             // 检查待处理任务数量，防止内存压力
             if (Interlocked.Increment(ref _pendingTaskCount) > MaxPendingTasks)
@@ -105,13 +107,14 @@ namespace StrmTool.Handlers
             }
 
             var cancellationToken = _cancellationTokenSource?.Token ?? CancellationToken.None;
+            var delayMs = config.ProcessingDelayMs;
 
             // 使用有限并发控制处理新文件
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    await ProcessItemWithErrorHandlingAsync(e.Item, cancellationToken);
+                    await ProcessItemWithErrorHandlingAsync(e.Item, delayMs, cancellationToken);
                 }
                 catch (Exception ex)
                 {
@@ -124,51 +127,37 @@ namespace StrmTool.Handlers
             }, cancellationToken);
         }
 
-        private async Task ProcessItemWithErrorHandlingAsync(BaseItem item, CancellationToken cancellationToken)
+        private async Task ProcessItemWithErrorHandlingAsync(BaseItem item, int delayMs, CancellationToken cancellationToken)
         {
-            if (cancellationToken.IsCancellationRequested)
-            {
-                return;
-            }
-
-            // 从JSON恢复是纯本地操作，无需延迟；只有真实探测远程媒体信息时才应用延迟
-            var canRestoreFromJson = MediaInfoHelper.ShouldRestoreFromJson(item, _mediaInfoManager);
-            if (!canRestoreFromJson)
-            {
-                var config = Plugin.GetSafeConfiguration();
-                var delayMs = config.ProcessingDelayMs;
-                Common.LogHelper.Debug(_logger, $"Applying delay: {delayMs}ms before processing {item.Name}");
-                await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
-
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    return;
-                }
-            }
-
             try
             {
-                if (cancellationToken.IsCancellationRequested)
+                cancellationToken.ThrowIfCancellationRequested();
+
+                // 从JSON恢复是纯本地操作：不延迟、不占用探测并发槽
+                if (MediaInfoHelper.ShouldRestoreFromJson(item, _mediaInfoManager))
                 {
-                    return;
+                    var restoreResult = await _strmFileProcessor.TryRestoreFromJsonAsync(item, cancellationToken).ConfigureAwait(false);
+                    if (restoreResult == ProcessResult.RestoredFromJson || restoreResult == ProcessResult.Skipped)
+                    {
+                        LogProcessResult(item.Name, restoreResult);
+                        return;
+                    }
+
+                    LogProcessResult(item.Name, restoreResult);
                 }
 
-                if (canRestoreFromJson)
+                // 需要探测远程媒体：先延迟再占用并发槽，避免对远程服务器造成压力
+                if (delayMs > 0)
                 {
-                    // 本地JSON恢复不受并发信号量限制，可并行执行
-                    await ProcessItemAsync(item, cancellationToken, canRestoreFromJson).ConfigureAwait(false);
-                    return;
+                    Common.LogHelper.Debug(_logger, $"Applying delay: {delayMs}ms before processing {item.Name}");
+                    await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
                 }
 
                 await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
                 try
                 {
-                    if (cancellationToken.IsCancellationRequested)
-                    {
-                        return;
-                    }
-
-                    await ProcessItemAsync(item, cancellationToken, canRestoreFromJson).ConfigureAwait(false);
+                    var result = await _strmFileProcessor.ExtractAndExportAsync(item, cancellationToken).ConfigureAwait(false);
+                    LogProcessResult(item.Name, result);
                 }
                 finally
                 {
@@ -185,15 +174,6 @@ namespace StrmTool.Handlers
             }
         }
 
-        private async Task ProcessItemAsync(
-            BaseItem item, CancellationToken cancellationToken, bool shouldRestoreFromJson)
-        {
-            var result = await _strmFileProcessor
-                .ProcessStrmFileAsync(item, cancellationToken, shouldRestoreFromJson)
-                .ConfigureAwait(false);
-            LogProcessResult(item.Name, result);
-        }
-
         private void LogProcessResult(string itemName, ProcessResult result)
         {
             switch (result)
@@ -203,6 +183,9 @@ namespace StrmTool.Handlers
                     break;
                 case ProcessResult.RestoredFromJson:
                     Common.LogHelper.Info(_logger, $"{itemName} successfully restored from JSON");
+                    break;
+                case ProcessResult.RestoreFailed:
+                    Common.LogHelper.Debug(_logger, $"{itemName} JSON restore failed, falling back to probing");
                     break;
                 case ProcessResult.ExtractedAndExported:
                     Common.LogHelper.Info(_logger, $"{itemName} successfully extracted and exported");

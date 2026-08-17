@@ -106,19 +106,24 @@ namespace StrmTool
         /// </summary>
         private void LogConfiguration(ILogger logger)
         {
+            var token = _cancellationTokenSource?.Token ?? CancellationToken.None;
             Task.Run(async () =>
             {
-                await Task.Delay(5000).ConfigureAwait(false);
                 try
                 {
+                    await Task.Delay(5000, token).ConfigureAwait(false);
                     var config = GetSafeConfiguration();
                     Common.LogHelper.Info(logger, $"Configuration loaded: EnableAutoExtract={config.EnableAutoExtract}, ProcessingDelayMs={config.ProcessingDelayMs}, MaxConcurrency={config.MaxConcurrency}");
+                }
+                catch (OperationCanceledException)
+                {
+                    // 插件卸载时取消，无需记录
                 }
                 catch (Exception ex)
                 {
                     Common.LogHelper.Error(logger, $"Failed to log configuration: {ex.Message}");
                 }
-            });
+            }, token);
         }
 
         /// <summary>

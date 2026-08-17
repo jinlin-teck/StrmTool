@@ -48,11 +48,6 @@ namespace StrmTool.Common
         }
 
         /// <summary>
-        /// 获取已耗费的毫秒数
-        /// </summary>
-        public long ElapsedMilliseconds => _stopwatch.ElapsedMilliseconds;
-
-        /// <summary>
         /// 实现 IDisposable，确保资源释放时停止监控
         /// </summary>
         public void Dispose()

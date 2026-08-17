@@ -43,56 +43,153 @@ namespace StrmTool.Common
         /// </summary>
         public async Task ExportAllAsync(IProgress<double> progress, CancellationToken cancellationToken)
         {
-            var allItems = MediaInfoHelper.GetAllStrmFiles(_libraryManager);
-            Common.LogHelper.Info(_logger, $"Found {allItems.Count} STRM files");
+            var validItems = MediaInfoHelper.GetStrmFilesWithCompleteMediaInfo(_libraryManager);
+            Common.LogHelper.Info(_logger, $"Found {validItems.Count} STRM files with complete media info");
 
-            var validItems = allItems.Where(MediaInfoHelper.HasCompleteMediaInfo).ToArray();
-
-            int total = validItems.Length;
-            int current = 0;
             int skipped = 0;
-            int exported = 0;
+            var maxConcurrency = Plugin.GetSafeConfiguration().MaxConcurrency;
 
-            Common.LogHelper.Info(_logger, $"Starting export of {total} valid STRM files...");
-
-            foreach (var item in validItems)
-            {
-                if (cancellationToken.IsCancellationRequested)
-                    break;
-
-                try
+            int exported = await ProcessItemsAsync(
+                validItems,
+                "export",
+                maxConcurrency,
+                async (item, ct) =>
                 {
                     string filePath = GetMediaInfoJsonPath(item);
-                    bool fileExists = File.Exists(filePath);
-                    if (fileExists)
+                    if (File.Exists(filePath))
                     {
-                        skipped++;
+                        Interlocked.Increment(ref skipped);
                         Common.LogHelper.Debug(_logger, $"Skipped {item.Name}, JSON already exists: {filePath}");
+                        return null;
                     }
-                    else
-                    {
-                        var exportSucceeded = await ExportItemAsync(item, cancellationToken).ConfigureAwait(false);
-                        if (exportSucceeded)
-                        {
-                            Common.LogHelper.Info(_logger, $"Successfully exported {item.Name} to: {filePath}");
-                            exported++;
-                        }
-                        else
-                        {
-                            Common.LogHelper.Warn(_logger, $"Failed to export {item.Name} to: {filePath}");
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Common.LogHelper.ErrorException(_logger, $"Error exporting {item.Name}", ex);
-                }
 
-                current++;
-                progress?.Report(current * 100.0 / total);
-            }
+                    var exportSucceeded = await ExportItemAsync(item, ct).ConfigureAwait(false);
+                    if (exportSucceeded)
+                    {
+                        Common.LogHelper.Info(_logger, $"Successfully exported {item.Name} to: {filePath}");
+                        return true;
+                    }
+
+                    Common.LogHelper.Warn(_logger, $"Failed to export {item.Name} to: {filePath}");
+                    return false;
+                },
+                progress,
+                cancellationToken).ConfigureAwait(false);
 
             Common.LogHelper.Info(_logger, $"Export completed. Skipped {skipped} existing JSON files, saved {exported} new files.");
+        }
+
+        /// <summary>
+        /// 从JSON文件恢复媒体信息
+        /// </summary>
+        public async Task RestoreAllAsync(IProgress<double> progress, CancellationToken cancellationToken)
+        {
+            var strmItems = MediaInfoHelper.GetStrmFilesNeedingRestoreWithJson(_libraryManager, this);
+            Common.LogHelper.Info(_logger, $"Found {strmItems.Count} STRM files requiring restore with JSON");
+
+            var maxConcurrency = Plugin.GetSafeConfiguration().MaxConcurrency;
+
+            int restored = await ProcessItemsAsync(
+                strmItems,
+                "restore",
+                maxConcurrency,
+                async (item, ct) =>
+                {
+                    var ok = await RestoreItemAsync(item, ct).ConfigureAwait(false);
+                    if (!ok)
+                    {
+                        Common.LogHelper.Warn(_logger, $"Failed to restore {item.Name} from JSON");
+                    }
+
+                    return ok;
+                },
+                progress,
+                cancellationToken).ConfigureAwait(false);
+
+            Common.LogHelper.Info(_logger, $"Restore operation completed. Restored {restored}/{strmItems.Count} items.");
+        }
+
+        /// <summary>
+        /// 以受限并发批量处理媒体项的公共骨架：取消检查、异常隔离、进度报告。
+        /// action 返回 true 表示成功，false 表示失败，null 表示跳过。
+        /// </summary>
+        /// <returns>成功处理的项数</returns>
+        private async Task<int> ProcessItemsAsync(
+            IReadOnlyCollection<BaseItem> items,
+            string operationName,
+            int maxConcurrency,
+            Func<BaseItem, CancellationToken, Task<bool?>> action,
+            IProgress<double> progress,
+            CancellationToken cancellationToken)
+        {
+            int total = items.Count;
+            if (total == 0)
+            {
+                progress?.Report(100);
+                return 0;
+            }
+
+            int processed = 0;
+            int succeeded = 0;
+            var progressLock = new object();
+            var concurrency = Math.Max(1, maxConcurrency);
+            using var semaphore = new SemaphoreSlim(concurrency, concurrency);
+
+            var tasks = items.Select(async item =>
+            {
+                await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        return;
+                    }
+
+                    bool? result;
+                    try
+                    {
+                        result = await action(item, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        Common.LogHelper.ErrorException(_logger, $"Error during {operationName} for {item.Name}", ex);
+                        result = false;
+                    }
+
+                    if (result == true)
+                    {
+                        Interlocked.Increment(ref succeeded);
+                    }
+                }
+                finally
+                {
+                    semaphore.Release();
+                }
+
+                // 加锁保证进度单调递增，不会倒退
+                lock (progressLock)
+                {
+                    processed++;
+                    progress?.Report(processed * 100.0 / total);
+                }
+            });
+
+            try
+            {
+                await Task.WhenAll(tasks).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // 记录取消进度后继续向上传播，让 Emby 正确将任务标记为已取消而非成功
+                Common.LogHelper.Info(_logger, $"{operationName} operation cancelled. Processed {processed}/{total} items.");
+                throw;
+            }
+
+            return succeeded;
         }
 
         /// <summary>
@@ -243,44 +340,6 @@ namespace StrmTool.Common
 
             var jsonFilePath = Path.Combine(mediaDirectory, $"{mediaFileName}{CommonConfiguration.MediaInfoFileExtension}");
             return jsonFilePath;
-        }
-
-        /// <summary>
-        /// 从JSON文件恢复媒体信息
-        /// </summary>
-        public async Task RestoreAllAsync(IProgress<double> progress, CancellationToken cancellationToken)
-        {
-            var strmItems = MediaInfoHelper.GetStrmFilesNeedingRestoreWithJson(_libraryManager, this);
-            Common.LogHelper.Info(_logger, $"Found {strmItems.Count} STRM files requiring restore with JSON");
-
-            int total = strmItems.Count;
-            int current = 0;
-
-            foreach (var item in strmItems)
-            {
-                if (cancellationToken.IsCancellationRequested)
-                    break;
-
-                var restored = false;
-                try
-                {
-                    restored = await RestoreItemAsync(item, cancellationToken).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    Common.LogHelper.ErrorException(_logger, $"Error restoring {item.Name}", ex);
-                }
-
-                if (!restored)
-                {
-                    Common.LogHelper.Warn(_logger, $"Failed to restore {item.Name} from JSON");
-                }
-
-                current++;
-                progress?.Report(current * 100.0 / total);
-            }
-
-            Common.LogHelper.Info(_logger, "Restore operation completed.");
         }
 
         /// <summary>
@@ -440,6 +499,10 @@ namespace StrmTool.Common
                     await File.WriteAllBytesAsync(imagePath, imageBytes, cancellationToken).ConfigureAwait(false);
                     Common.LogHelper.Debug(_logger, $"Restored embedded image for audio file {item.Name}");
                 }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
                 catch (Exception ex)
                 {
                     Common.LogHelper.ErrorException(_logger, "Error restoring audio embedded image", ex);
@@ -465,16 +528,17 @@ namespace StrmTool.Common
         }
 
         /// <summary>
-        /// 使文件名安全，替换无效字符
+        /// 使文件名安全，替换无效字符（单遍扫描）
         /// </summary>
-        private string MakeSafeFilename(string name)
+        private static string MakeSafeFilename(string name)
         {
-            var invalidChars = Path.GetInvalidFileNameChars();
-            var sb = new StringBuilder(name);
-            foreach (char c in invalidChars)
+            var invalidChars = new HashSet<char>(Path.GetInvalidFileNameChars());
+            var sb = new StringBuilder(name.Length);
+            foreach (char c in name)
             {
-                sb.Replace(c, '_');
+                sb.Append(invalidChars.Contains(c) ? '_' : c);
             }
+
             return sb.ToString();
         }
 

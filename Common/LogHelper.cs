@@ -58,22 +58,5 @@ namespace StrmTool.Common
                 logger.Error(errorMessage);
             }
         }
-
-        /// <summary>
-        /// 记录操作失败日志
-        /// </summary>
-        public static void LogOperationFailure(ILogger logger, string operationName, string itemName, Exception exception)
-        {
-            var message = $"Error during {operationName} for {itemName}";
-            ErrorException(logger, message, exception);
-        }
-
-        /// <summary>
-        /// 记录操作成功日志
-        /// </summary>
-        public static void LogOperationSuccess(ILogger logger, string operationName, string itemName)
-        {
-            Info(logger, $"{operationName} successfully completed for {itemName}");
-        }
     }
 }
