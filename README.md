@@ -1,149 +1,103 @@
 # StrmTool for Emby
 
-一款专为 Emby 媒体服务器设计的插件，用于优化 strm 文件的媒体信息管理和播放体验。
+[English Documentation (README_EN.md)](./README_EN.md)
 
-当前版本：v2.6.0
+**StrmTool** 是一款专为 Emby 媒体服务器打造的 `.strm` 媒体增强插件。它通过预提取媒体技术信息（音视频编码、分辨率、字幕、图片等）并导出为本地 JSON 备份，大幅提升网盘/远程流媒体的媒体库展示效果与点播起播速度；媒体信息丢失时还可从备份一键恢复。
 
-如果你想用在Jellyfin上，请移步Jellyfin分支：https://github.com/jinlin-teck/StrmTool/tree/jellyfin
+> **当前版本**：`v2.6.0`（适用 **Emby 4.8+**；已在 4.8.11.0 与 4.9.1.80 上测试通过，其他版本请自行测试。如果你使用的是 Jellyfin，请前往 [StrmTool-Jellyfin](https://github.com/jinlin-teck/StrmTool-Jellyfin)——Jellyfin 版已独立为单独仓库，基于 .NET 10 / Jellyfin 12 构建，本仓库不再更新 Jellyfin 版本）
+>
+> **推荐搭配**：如果你还需要从 OpenList / Alist 网盘批量生成 `.strm` 文件，推荐搭配本人的另一个开源项目 [openlist-strm](https://github.com/jinlin-teck/openlist-strm)（带 WebUI 的轻量级 `.strm` 生成服务），在 Emby 上获得完整的流媒体播放体验。
 
-> **推荐搭配**：如果你还需要从 OpenList/Alist 网盘批量生成 strm 文件，可参考本人另外一个项目：[openlist-strm](https://github.com/jinlin-teck/openlist-strm)——从 OpenList/Alist 目录生成 .strm 文件的轻量服务，带 WebUI，配合本插件可在 Emby/Jellyfin 上完美播放 strm 媒体文件。
+---
 
-## 功能特性
+## ✨ 核心功能
 
-### 🚀 媒体信息提取与加速
+### 1. 🚀 媒体信息预提取与起播加速
 
-- **自动提取**：当新的 strm 文件入库时，自动解析音视频编码、章节、字幕、图片等媒体信息
-- **智能处理**：仅处理缺少完整媒体信息的 strm 文件，避免重复操作
-- **播放加速**：通过预提取媒体信息，显著提升 strm 文件的起播速度
-- **兜底扫描**：内置计划任务（默认凌晨3点，可自定义）确保无遗漏
+- **入库即提取**：新 `.strm` 文件入库后自动在后台提取音视频编码、分辨率、字幕、图片等媒体信息，详情页立即展示完整的媒体规格标签。
+- **起播加速**：播放前无需等待 Emby 临时探测远程流，点播起播更快。
+- **智能去重**：仅处理缺少完整媒体信息的 `.strm` 文件，已具备完整信息的条目直接跳过，避免重复操作。
+- **兜底扫描**：内置计划任务（默认每天凌晨 3 点，可自定义）全库扫描，确保无遗漏。
 
-### 💾 备份与恢复
+### 2. 💾 媒体信息备份与一键恢复
 
-- **自动备份**：提取媒体信息后自动导出为 JSON 备份文件（自动跳过已有的同名json文件，自动提取和手动任务提取均生效）
-- **文件位置**：备份文件保存在 strm 文件同目录下，格式为 `{filename}-mediainfo.json`
-- **一键恢复**：支持从 JSON 备份文件快速恢复媒体信息
-- **智能检测**：恢复时自动识别需要处理的文件（缺少音视频信息的文件）
+- **自动备份**：提取媒体信息后自动在 `.strm` 同目录下导出同名 `{filename}-mediainfo.json` 备份文件（已有同名文件自动跳过，自动提取与手动任务均生效）。
+- **一键恢复**：支持从 JSON 备份批量恢复媒体信息，恢复时自动识别缺少音视频信息的文件，仅补缺失、不覆盖已有数据。
+- **坏文件自愈**：备份 JSON 损坏或校验失败时自动重命名为 `.bak` 隔离，并降级到远程探测重新提取、重新导出。
 
-## 安装与使用
+### 3. 📦 批量导出与离线恢复计划任务
 
-### 安装步骤
+- 提供独立的**导出**与**恢复**计划任务（恢复为纯本地磁盘操作，零远程网络请求），方便老媒体库建立初始备份，或在迁移、重建媒体库后快速恢复所有媒体技术信息。
 
-1. 将 `StrmTool.dll` 文件放入 Emby 插件目录
-2. 重启 Emby 服务器
-3. 插件将自动启用并开始工作
+---
 
-### 计划任务
+## 📦 安装方法
 
-在 Emby 管理后台的「计划任务」中可找到以下功能：
+### 手动下载安装
 
-| 任务名称               | 功能说明                             | 默认执行时间 |
-| ---------------------- | ------------------------------------ | ------------ |
-| **提取 Strm 媒体信息** | 兜底扫描，确保所有 strm 文件信息完整 | 每天凌晨3点  |
-| **导出 STRM 媒体信息** | 手动导出所有 strm 文件的媒体信息     | 手动执行     |
-| **恢复 STRM 媒体信息** | 从 JSON 备份文件恢复媒体信息         | 手动执行     |
+1. 从 [Releases](https://github.com/jinlin-teck/StrmTool/releases) 页面下载最新版本的 `StrmTool.dll`（文件名带 `-emby` 后缀的版本，如 `StrmTool_2.6.0.0-emby.zip`）。
+2. 进入 Emby 配置目录下的插件文件夹（Docker 环境通常为 `/config/plugins`），新建文件夹 `StrmTool`。
+3. 将 `StrmTool.dll` 放入 `StrmTool` 文件夹中，重启 Emby 服务器。
+4. 进入 **Emby 管理后台 → 插件**，看到 `StrmTool` 状态为 `Active` 即表示安装成功，插件将自动开始工作。
 
-## 配置说明
+> ⚠️ **版本注意**：下载时请选择 Emby 版本（`-emby` 后缀）的插件文件。Jellyfin 版本已迁移至 [StrmTool-Jellyfin](https://github.com/jinlin-teck/StrmTool-Jellyfin) 仓库发布。
 
-v2.5.1开始提供配置页面，在emby设置面板插件栏找到本插件，点击插件名称即可打开。提供的设置项如下：
+---
 
-| 配置项               | 说明                                     | 默认值 |
-| -------------------- | ---------------------------------------- | ------ |
-| **启用自动提取**     | 检测到新 STRM 文件时是否自动提取媒体信息 | true   |
-| **处理延迟（毫秒）** | 探测远程媒体信息前的延迟时间（毫秒），从 JSON 恢复不延迟 | 2000   |
-| **最大并发数**       | 同时处理的最大文件数量                   | 3      |
+## ⚙️ 插件设置说明
+
+进入 **Emby 管理后台 → 插件**，找到 `StrmTool`，点击插件名称即可打开配置页面（v2.5.1 起提供）。
+
+| 配置项 | 默认值 | 功能说明 |
+| :--- | :---: | :--- |
+| **启用自动提取** | 开启 | 检测到新 `.strm` 文件入库时，是否自动在后台提取媒体信息。 |
+| **处理延迟（毫秒）** | `2000` ms | 每次真实探测远程媒体信息前等待的毫秒数，用于平滑请求节奏，防止触发网盘/WebDAV 高频风控（从 JSON 备份恢复为本地操作，不延迟）。 |
+| **最大并发数** | `3` | 同时处理的最大文件数量，后台探测与批量任务共用此并发上限。 |
 
 其他说明：
 
-- **计划任务**：可根据需求调整执行时间
-- **备份策略**：自动备份，无需手动干预
-
-## 系统要求
-
-- **Emby 版本**：已在 4.8.11.0 和 4.9.1.80 版本测试通过，其他版本请自行测试
-
-## 注意事项
-
-- 插件自动注册事件处理器，安装后立即生效
-- 手动刷新媒体库可能导致已提取信息丢失，建议使用备份恢复功能
-- 恢复功能仅在需要时手动执行，不会自动运行
+- 所有设置点击保存后立即生效，无需重启 Emby。
+- 计划任务的执行时间可在 Emby 「计划任务」页面按需调整。
 
 ---
 
-**使用提示**：建议定期检查计划任务执行情况，确保媒体信息始终保持最新状态，另外下载dll文件注意版本，emby就下载emby版本的dll文件，jellyfin的下载jellyfin版本
+## 🕒 计划任务指南
+
+进入 **Emby 管理后台 → 计划任务**，可使用以下三个任务：
+
+| 任务名称 | 默认触发 | 适用场景与行为说明 |
+| :--- | :---: | :--- |
+| **提取 Strm 媒体信息** | 每天凌晨 3 点 | **主力任务**。全库扫描缺少媒体信息的 `.strm` 条目：优先从同目录 JSON 备份恢复（纯本地）；无备份则发起远程探测并自动导出备份。作为兜底定时运行，确保信息无遗漏。 |
+| **导出 STRM 媒体信息** | 手动执行 | **老库生成备份**。将库中已具备媒体信息、但本地尚无 `-mediainfo.json` 的条目批量导出为备份文件，已有备份自动跳过。 |
+| **恢复 STRM 媒体信息** | 手动执行 | **迁移/重建后恢复**。扫描全库，利用同目录的 JSON 备份批量恢复缺失的音视频流信息（纯本地操作，零远程网络请求）。 |
 
 ---
 
----
+## 💡 常见使用场景指南
 
-# StrmTool for Emby
+### 场景一：全新安装与日常使用
 
-A plugin designed specifically for Emby media server to optimize strm file media information management and playback experience.
+保持插件默认设置即可。新入库的 `.strm` 影片会自动在后台提取媒体信息并生成 JSON 备份；每天凌晨的兜底扫描会确保信息无遗漏，无需任何手动操作。
 
-Current version: v2.6.0
+### 场景二：已有大量影片的老媒体库首次使用本插件
 
-If you want to use it with Jellyfin, please go to the Jellyfin branch: https://github.com/jinlin-teck/StrmTool/tree/jellyfin
+1. 先运行一次 **「导出 STRM 媒体信息」** 任务，将 Emby 数据库里已有的媒体信息批量导出为本地 JSON 备份（已有备份自动跳过）。
+2. 再运行一次 **「提取 Strm 媒体信息」** 任务，为剩余尚未探测过的 `.strm` 影片补齐媒体信息并生成备份。
 
-> **Recommended companion**: If you also need to batch-generate strm files from OpenList/Alist, check out my other project: [openlist-strm](https://github.com/jinlin-teck/openlist-strm) — a lightweight service with WebUI that generates .strm files from OpenList/Alist directories. Combined with this plugin, you can play strm media files perfectly on Emby/Jellyfin.
+### 场景三：重建媒体库、重装 Emby 或媒体信息丢失
 
-## Features
-
-### 🚀 Media Info Extraction & Acceleration
-
-- **Auto-extraction**: When new strm files are added to the library, automatically parse audio/video codecs, chapters, subtitles, images and other media information
-- **Smart processing**: Only process strm files that lack complete media information, avoiding redundant operations
-- **Playback acceleration**: Pre-extracting media information significantly improves the startup speed of strm files
-- **Scheduled scan**: Built-in scheduled task (default 3 AM, customizable) ensures no files are missed
-
-### 💾 Backup & Restore
-
-- **Auto backup**: Automatically export to JSON backup file after extracting media info (auto-skip existing same-name json files, works for both auto-extraction and manual task extraction)
-- **File location**: Backup files are saved in the same directory as strm files, format is `{filename}-mediainfo.json`
-- **One-click restore**: Quickly restore media information from JSON backup files
-- **Smart detection**: Automatically identify files that need processing during restore (files lacking audio/video info)
-
-## Installation & Usage
-
-### Installation Steps
-
-1. Place `StrmTool.dll` into the Emby plugins directory
-2. Restart Emby server
-3. The plugin will automatically enable and start working
-
-### Scheduled Tasks
-
-Find the following features in "Scheduled Tasks" in Emby admin dashboard:
-
-| Task Name                   | Description                                                | Default Execution Time |
-| --------------------------- | ---------------------------------------------------------- | ---------------------- |
-| **Extract Strm Media Info** | Scheduled scan to ensure all strm files have complete info | Daily at 3 AM          |
-| **Export STRM Media Info**  | Manually export media info for all strm files              | Manual execution       |
-| **Restore STRM Media Info** | Restore media info from JSON backup files                  | Manual execution       |
-
-## Configuration
-
-Starting from v2.5.1, a configuration page is available. Locate this plugin in the Plugins section of the Emby admin dashboard and click on the plugin name to open it. The following settings are provided:
-
-| Configuration Option      | Description                                                         | Default Value |
-| ------------------------- | ------------------------------------------------------------------- | ------------- |
-| **Enable Auto Extract**   | Whether to auto-extract media info when new strm files are detected | true          |
-| **Processing Delay (ms)** | Delay before probing remote media info (ms); restoring from JSON is not delayed | 2000          |
-| **Max Concurrency**       | Maximum number of files to process simultaneously                   | 3             |
-
-Additional notes:
-
-- **Scheduled tasks**: Execution time can be adjusted as needed
-- **Backup strategy**: Auto backup, no manual intervention needed
-
-## System Requirements
-
-- **Emby version**: Tested on 4.8.11.0 and 4.9.1.80, please test other versions yourself
-
-## Notes
-
-- The plugin automatically registers event handlers and takes effect immediately after installation
-- Manually refreshing the media library may cause extracted info to be lost, recommend using backup/restore feature
-- Restore function only runs manually when needed, it won't run automatically
+- **备份文件还在**：手动刷新媒体库可能导致已提取信息丢失。只要在影片目录下保留了 `-mediainfo.json` 备份文件，运行一次 **「恢复 STRM 媒体信息」** 任务即可批量恢复，全程零远程网络请求。
+- **迁移到新服务器**：连同影片目录一起拷贝备份文件，新库扫描完成后运行「恢复 STRM 媒体信息」即可。
 
 ---
 
-**Usage tips**: It is recommended to regularly check the scheduled task execution to ensure media information is always up to date. Also pay attention to the DLL version when downloading - use the emby version for emby and jellyfin version for jellyfin.
+## 📌 注意事项与常见问题
+
+1. **恢复任务会覆盖已有的媒体信息吗？**
+   - 不会。恢复仅针对缺少音视频信息的条目补全数据，已有完整信息的条目自动跳过。
+2. **JSON 备份文件可以随意移动或改名吗？**
+   - 备份文件必须与 `.strm` 文件位于同一目录且保持同名（仅后缀不同），例如 `Movie.strm` 对应 `Movie-mediainfo.json`。整体迁移媒体目录不影响恢复。
+3. **网盘有风控限制，探测太频繁怎么办？**
+   - 调大 **「处理延迟（毫秒）」**（如改为 5000），并适当调小 **「最大并发数」**。命中本地 JSON 备份的条目不会发起远程请求，也不受延迟影响。
+4. **插件安装后没有生效？**
+   - 确认下载的是 Emby 版本（`-emby` 后缀）的 DLL，并已重启 Emby 服务；插件列表中状态应为 `Active`。
