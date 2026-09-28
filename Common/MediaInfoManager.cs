@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -30,6 +31,18 @@ namespace StrmTool.Common
         private readonly IItemRepository _itemRepository;
         private readonly IJsonSerializer _jsonSerializer;
 
+        private sealed class JsonAudioTagCacheEntry
+        {
+            public long LastWriteTicks { get; set; }
+            public long Length { get; set; }
+            public bool HasProbedAudioTags { get; set; }
+            public AudioMetadataInfo? AudioMetadata { get; set; }
+        }
+
+        private static readonly ConcurrentDictionary<string, JsonAudioTagCacheEntry> AudioTagCache =
+            new ConcurrentDictionary<string, JsonAudioTagCacheEntry>(StringComparer.Ordinal);
+        private const int TailReadBufferBytes = 16384;
+
         public MediaInfoManager(ILogger logger, ILibraryManager libraryManager, IItemRepository itemRepository, IJsonSerializer jsonSerializer)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -43,7 +56,7 @@ namespace StrmTool.Common
         /// </summary>
         public async Task ExportAllAsync(IProgress<double> progress, CancellationToken cancellationToken)
         {
-            var validItems = MediaInfoHelper.GetStrmFilesWithCompleteMediaInfo(_libraryManager);
+            var validItems = MediaInfoHelper.GetStrmFilesWithCompleteMediaInfo(_libraryManager, this);
             Common.LogHelper.Info(_logger, $"Found {validItems.Count} STRM files with complete media info");
 
             int skipped = 0;
@@ -56,7 +69,8 @@ namespace StrmTool.Common
                 async (item, ct) =>
                 {
                     string filePath = GetMediaInfoJsonPath(item);
-                    if (File.Exists(filePath))
+                    if (File.Exists(filePath) &&
+                        (!AudioMetadataHelper.IsMusicLibraryAudio(item, _libraryManager) || HasProbedAudioTagsInJson(filePath)))
                     {
                         Interlocked.Increment(ref skipped);
                         Common.LogHelper.Debug(_logger, $"Skipped {item.Name}, JSON already exists: {filePath}");
@@ -195,14 +209,18 @@ namespace StrmTool.Common
         /// <summary>
         /// 导出单个媒体项信息为 JSON 文件。
         /// </summary>
-        public async Task<bool> ExportItemAsync(BaseItem item, CancellationToken cancellationToken = default)
+        public async Task<bool> ExportItemAsync(
+            BaseItem item,
+            CancellationToken cancellationToken = default,
+            bool audioTagsProbed = false)
         {
             if (item == null)
                 return false;
 
             try
             {
-                var mediaSourcesWithChapters = await PrepareMediaSourcesForExportAsync(item, cancellationToken).ConfigureAwait(false);
+                var mediaSourcesWithChapters = await PrepareMediaSourcesForExportAsync(
+                    item, cancellationToken, audioTagsProbed).ConfigureAwait(false);
                 if (mediaSourcesWithChapters.Count == 0)
                 {
                     Common.LogHelper.Warn(_logger, $"No media sources available for {item.Name}, skipping export");
@@ -225,7 +243,9 @@ namespace StrmTool.Common
         }
 
         private async Task<List<MediaSourceWithChapters>> PrepareMediaSourcesForExportAsync(
-            BaseItem item, CancellationToken cancellationToken)
+            BaseItem item,
+            CancellationToken cancellationToken,
+            bool audioTagsProbed = false)
         {
             var libraryOptions = _libraryManager.GetLibraryOptions(item);
             if (libraryOptions == null)
@@ -250,6 +270,12 @@ namespace StrmTool.Common
                 SanitizeMediaSourceInfo(jsonItem);
                 SanitizeChapters(jsonItem);
                 SetEpisodeSpecificInfo(item, jsonItem);
+                if (item is Audio audio && AudioMetadataHelper.IsMusicLibraryAudio(audio, _libraryManager))
+                {
+                    jsonItem.AudioMetadata = AudioMetadataHelper.BuildAudioMetadataForExport(
+                        audio, _libraryManager, audioTagsProbed);
+                }
+
                 await SetAudioEmbeddedImageAsync(item, jsonItem, cancellationToken).ConfigureAwait(false);
             }
 
@@ -317,6 +343,7 @@ namespace StrmTool.Common
 
             var json = _jsonSerializer.SerializeToString(mediaSourcesWithChapters);
             await File.WriteAllTextAsync(filePath, json, cancellationToken).ConfigureAwait(false);
+            UpdateAudioTagCache(filePath, mediaSourcesWithChapters.FirstOrDefault()?.AudioMetadata);
         }
 
         /// <summary>
@@ -345,7 +372,9 @@ namespace StrmTool.Common
         /// <summary>
         /// 恢复单个媒体项信息从JSON文件
         /// </summary>
-        public async Task<bool> RestoreItemAsync(BaseItem item, CancellationToken cancellationToken = default)
+        public async Task<bool> RestoreItemAsync(
+            BaseItem item,
+            CancellationToken cancellationToken = default)
         {
             if (item == null)
                 return false;
@@ -373,6 +402,267 @@ namespace StrmTool.Common
                 Common.LogHelper.ErrorException(_logger, $"Error restoring media information for {item.Name}", ex);
                 return false;
             }
+        }
+
+        /// <summary>
+        /// 当音乐库音频已有媒体流但同目录存在尚未入库的外挂歌词（.lrc / .elrc）时，纯本地合并并保存歌词流。
+        /// </summary>
+        public bool TryMergeLocalLyrics(BaseItem item, CancellationToken cancellationToken = default)
+        {
+            if (item == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                var currentStreams = item.GetMediaStreams();
+                if (!MediaInfoHelper.HasCompleteMediaInfo(currentStreams) ||
+                    !AudioMetadataHelper.HasMissingLocalLyrics(item, currentStreams, _libraryManager))
+                {
+                    return false;
+                }
+
+                var mergedStreams = AudioMetadataHelper.PrepareMediaStreamsForSave(item, currentStreams);
+                _itemRepository.SaveMediaStreams(item.InternalId, mergedStreams, cancellationToken);
+                Common.LogHelper.Info(_logger, $"Merged local lyrics for {item.Name}");
+                return true;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Common.LogHelper.ErrorException(_logger, $"Error merging local lyrics for {item.Name}", ex);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 检查媒体项对应的 JSON 文件中是否已记录探测过的音频标签（AudioTagsProbed == true）。
+        /// 使用基于文件时间戳与长度的内存缓存及尾部轻量解析，避免重复全量读取和反序列化 Base64 封面。
+        /// </summary>
+        public bool HasProbedAudioTagsInJson(BaseItem item)
+        {
+            if (item == null)
+            {
+                return false;
+            }
+
+            return HasProbedAudioTagsInJson(GetMediaInfoJsonPath(item));
+        }
+
+        /// <summary>
+        /// 判断音频项是否可通过本地 JSON（或目录/文件名兜底）补齐当前缺失的核心音频元数据。
+        /// </summary>
+        public bool CanRestoreAudioMetadataFromJson(Audio audio)
+        {
+            if (audio == null)
+            {
+                return false;
+            }
+
+            TryGetJsonAudioMetadata(GetMediaInfoJsonPath(audio), out _, out var cachedAudioMetadata);
+            return AudioMetadataHelper.CanRestoreMissingAudioMetadata(audio, cachedAudioMetadata, _libraryManager);
+        }
+
+        private bool HasProbedAudioTagsInJson(string jsonFilePath)
+        {
+            return TryGetJsonAudioMetadata(jsonFilePath, out var hasProbed, out _) && hasProbed;
+        }
+
+        private bool TryGetJsonAudioMetadata(
+            string jsonFilePath,
+            out bool hasProbedAudioTags,
+            out AudioMetadataInfo? audioMetadata)
+        {
+            hasProbedAudioTags = false;
+            audioMetadata = null;
+
+            try
+            {
+                var fileInfo = new FileInfo(jsonFilePath);
+                if (!fileInfo.Exists)
+                {
+                    AudioTagCache.TryRemove(jsonFilePath, out _);
+                    return false;
+                }
+
+                long ticks = fileInfo.LastWriteTimeUtc.Ticks;
+                long length = fileInfo.Length;
+
+                if (AudioTagCache.TryGetValue(jsonFilePath, out var cached) &&
+                    cached.LastWriteTicks == ticks &&
+                    cached.Length == length)
+                {
+                    hasProbedAudioTags = cached.HasProbedAudioTags;
+                    audioMetadata = cached.AudioMetadata;
+                    return true;
+                }
+
+                // AudioMetadata 位于 JSON 末尾（在可能很大的 EmbeddedImage Base64 之后），优先只读文件尾部
+                string tailText = ReadFileTailText(jsonFilePath, length, TailReadBufferBytes);
+                if (tailText.IndexOf("\"AudioMetadata\"", StringComparison.Ordinal) < 0 && length > TailReadBufferBytes)
+                {
+                    tailText = File.ReadAllText(jsonFilePath);
+                }
+
+                if (tailText.IndexOf("\"AudioMetadata\"", StringComparison.Ordinal) >= 0)
+                {
+                    var objectJson = ExtractJsonObjectAfterKey(tailText, "\"AudioMetadata\"");
+                    if (!string.IsNullOrEmpty(objectJson))
+                    {
+                        audioMetadata = _jsonSerializer.DeserializeFromString<AudioMetadataInfo>(objectJson);
+                        hasProbedAudioTags = audioMetadata?.AudioTagsProbed == true;
+                    }
+                }
+
+                AudioTagCache[jsonFilePath] = new JsonAudioTagCacheEntry
+                {
+                    LastWriteTicks = ticks,
+                    Length = length,
+                    HasProbedAudioTags = hasProbedAudioTags,
+                    AudioMetadata = audioMetadata
+                };
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static void UpdateAudioTagCache(string jsonFilePath, AudioMetadataInfo? audioMetadata)
+        {
+            try
+            {
+                var fileInfo = new FileInfo(jsonFilePath);
+                if (!fileInfo.Exists)
+                {
+                    AudioTagCache.TryRemove(jsonFilePath, out _);
+                    return;
+                }
+
+                AudioTagCache[jsonFilePath] = new JsonAudioTagCacheEntry
+                {
+                    LastWriteTicks = fileInfo.LastWriteTimeUtc.Ticks,
+                    Length = fileInfo.Length,
+                    HasProbedAudioTags = audioMetadata?.AudioTagsProbed == true,
+                    AudioMetadata = audioMetadata
+                };
+            }
+            catch
+            {
+                // 忽略缓存更新异常
+            }
+        }
+
+        private static string ReadFileTailText(string filePath, long fileLength, int maxBytes)
+        {
+            if (fileLength <= maxBytes)
+            {
+                return File.ReadAllText(filePath);
+            }
+
+            using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            fs.Seek(-maxBytes, SeekOrigin.End);
+            var buffer = new byte[maxBytes];
+            int totalRead = 0;
+            while (totalRead < maxBytes)
+            {
+                int read = fs.Read(buffer, totalRead, maxBytes - totalRead);
+                if (read <= 0)
+                {
+                    break;
+                }
+
+                totalRead += read;
+            }
+
+            return Encoding.UTF8.GetString(buffer, 0, totalRead);
+        }
+
+        private static string? ExtractJsonObjectAfterKey(string text, string keyToken)
+        {
+            int keyIndex = text.LastIndexOf(keyToken, StringComparison.Ordinal);
+            if (keyIndex < 0)
+            {
+                return null;
+            }
+
+            int colonIndex = text.IndexOf(':', keyIndex + keyToken.Length);
+            if (colonIndex < 0)
+            {
+                return null;
+            }
+
+            int startBrace = -1;
+            for (int i = colonIndex + 1; i < text.Length; i++)
+            {
+                char c = text[i];
+                if (char.IsWhiteSpace(c))
+                {
+                    continue;
+                }
+
+                if (c == '{')
+                {
+                    startBrace = i;
+                }
+
+                break;
+            }
+
+            if (startBrace < 0)
+            {
+                return null;
+            }
+
+            int depth = 0;
+            bool inString = false;
+            bool escaped = false;
+
+            for (int i = startBrace; i < text.Length; i++)
+            {
+                char c = text[i];
+                if (inString)
+                {
+                    if (escaped)
+                    {
+                        escaped = false;
+                    }
+                    else if (c == '\\')
+                    {
+                        escaped = true;
+                    }
+                    else if (c == '"')
+                    {
+                        inString = false;
+                    }
+
+                    continue;
+                }
+
+                if (c == '"')
+                {
+                    inString = true;
+                }
+                else if (c == '{')
+                {
+                    depth++;
+                }
+                else if (c == '}')
+                {
+                    depth--;
+                    if (depth == 0)
+                    {
+                        return text.Substring(startBrace, i - startBrace + 1);
+                    }
+                }
+            }
+
+            return null;
         }
 
         private async Task<MediaSourceWithChapters?> LoadAndValidateMediaSourceAsync(
@@ -440,6 +730,7 @@ namespace StrmTool.Common
                 return MarkInvalidJsonFile(jsonFilePath, "MediaSourceInfo.MediaStreams has no video or audio stream");
             }
 
+            UpdateAudioTagCache(jsonFilePath, mediaSourceWithChapters.AudioMetadata);
             return mediaSourceWithChapters;
         }
 
@@ -452,7 +743,11 @@ namespace StrmTool.Common
             if (mediaSourceWithChapters.MediaSourceInfo != null)
             {
                 MediaInfoHelper.ApplyMediaSourceInfo(
-                    item, mediaSourceWithChapters.MediaSourceInfo, _libraryManager, cancellationToken);
+                    item,
+                    mediaSourceWithChapters.MediaSourceInfo,
+                    _libraryManager,
+                    cancellationToken,
+                    mediaSourceWithChapters.AudioMetadata);
             }
 
             RestoreChapters(item, mediaSourceWithChapters);
@@ -464,7 +759,9 @@ namespace StrmTool.Common
         {
             if (mediaSourceWithChapters.MediaSourceInfo?.MediaStreams != null)
             {
-                _itemRepository.SaveMediaStreams(item.InternalId, mediaSourceWithChapters.MediaSourceInfo.MediaStreams, cancellationToken);
+                var streamsToSave = AudioMetadataHelper.PrepareMediaStreamsForSave(
+                    item, mediaSourceWithChapters.MediaSourceInfo.MediaStreams);
+                _itemRepository.SaveMediaStreams(item.InternalId, streamsToSave, cancellationToken);
             }
         }
 
@@ -578,5 +875,6 @@ namespace StrmTool.Common
         public List<ChapterInfo> Chapters { get; set; } = new List<ChapterInfo>();
         public bool? ZeroFingerprintConfidence { get; set; }
         public string? EmbeddedImage { get; set; }
+        public AudioMetadataInfo? AudioMetadata { get; set; }
     }
 }

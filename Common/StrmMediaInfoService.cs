@@ -64,12 +64,13 @@ namespace StrmTool.Common
 
                 if (mediaInfo?.MediaStreams != null && mediaInfo.MediaStreams.Count > 0)
                 {
-                    _itemRepository.SaveMediaStreams(item.InternalId, mediaInfo.MediaStreams, cancellationToken);
+                    var streamsToSave = AudioMetadataHelper.PrepareMediaStreamsForSave(item, mediaInfo.MediaStreams);
+                    _itemRepository.SaveMediaStreams(item.InternalId, streamsToSave, cancellationToken);
 
                     MediaInfoHelper.ApplyMediaSourceInfo(item, mediaInfo, _libraryManager, cancellationToken);
 
-                    Common.LogHelper.Debug(_logger, $"Successfully saved {mediaInfo.MediaStreams.Count} media streams and updated item properties for {fileName}");
-                    return mediaInfo.MediaStreams.ToList();
+                    Common.LogHelper.Debug(_logger, $"Successfully saved {streamsToSave.Count} media streams and updated item properties for {fileName}");
+                    return streamsToSave;
                 }
 
                 Common.LogHelper.Debug(_logger, $"No media streams found for {fileName}");

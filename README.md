@@ -2,9 +2,9 @@
 
 [English Documentation (README_EN.md)](./README_EN.md)
 
-**StrmTool** 是一款专为 Emby 媒体服务器打造的 `.strm` 媒体增强插件。它通过预提取媒体技术信息（音视频编码、分辨率、字幕、图片等）并导出为本地 JSON 备份，大幅提升网盘/远程流媒体的媒体库展示效果与点播起播速度；媒体信息丢失时还可从备份一键恢复。
+**StrmTool** 是一款专为 Emby 媒体服务器打造的 `.strm` 媒体增强插件。它通过预提取媒体技术信息（音视频编码、分辨率、字幕、图片、音乐标签与外挂歌词等）并导出为本地 JSON 备份，大幅提升网盘/远程流媒体的媒体库展示效果与点播起播速度；媒体信息丢失时还可从备份一键恢复。
 
-> **当前版本**：`v2.6.0`（适用 **Emby 4.8+**；已在 4.8.11.0 与 4.9.1.80 上测试通过，其他版本请自行测试。如果你使用的是 Jellyfin，请前往 [StrmTool-Jellyfin](https://github.com/jinlin-teck/StrmTool-Jellyfin)——Jellyfin 版已独立为单独仓库，基于 .NET 10 / Jellyfin 12 构建，本仓库不再更新 Jellyfin 版本）
+> **当前版本**：`v2.7.0`（适用 **Emby 4.8+**；已在 4.8.11.0 与 4.9.1.80 上测试通过，其他版本请自行测试。如果你使用的是 Jellyfin，请前往 [StrmTool-Jellyfin](https://github.com/jinlin-teck/StrmTool-Jellyfin)——Jellyfin 版已独立为单独仓库，基于 .NET 10 / Jellyfin 12 构建，本仓库不再更新 Jellyfin 版本）
 >
 > **推荐搭配**：如果你还需要从 OpenList / Alist 网盘批量生成 `.strm` 文件，推荐搭配本人的另一个开源项目 [openlist-strm](https://github.com/jinlin-teck/openlist-strm)（带 WebUI 的轻量级 `.strm` 生成服务），在 Emby 上获得完整的流媒体播放体验。
 
@@ -18,6 +18,7 @@
 - **起播加速**：播放前无需等待 Emby 临时探测远程流，点播起播更快。
 - **智能去重**：仅处理缺少完整媒体信息的 `.strm` 文件，已具备完整信息的条目直接跳过，避免重复操作。
 - **兜底扫描**：内置计划任务（默认每天凌晨 3 点，可自定义）全库扫描，确保无遗漏。
+- **🎵 音乐库 `.strm` 完整支持**：针对音乐媒体库中的 `.strm` 曲目，自动提取远程音频内嵌标签（歌名、专辑、歌手、专辑歌手、作曲、流派、音轨号、碟片号、发行年份等），在标签缺失时支持按 `艺术家\专辑\音轨` 目录结构与文件名回退补全，自动触发 Emby 生成专辑/艺术家实体与本地封面，并自动关联同目录 `.lrc` / `.elrc` 外挂歌词。
 
 ### 2. 💾 媒体信息备份与一键恢复
 
@@ -35,7 +36,7 @@
 
 ### 手动下载安装
 
-1. 从 [Releases](https://github.com/jinlin-teck/StrmTool/releases) 页面下载最新版本的 `StrmTool.dll`（文件名带 `-emby` 后缀的版本，如 `StrmTool_2.6.0.0-emby.zip`）。
+1. 从 [Releases](https://github.com/jinlin-teck/StrmTool/releases) 页面下载最新版本的 `StrmTool.dll`。
 2. 进入 Emby 配置目录下的插件文件夹（Docker 环境通常为 `/config/plugins`），新建文件夹 `StrmTool`。
 3. 将 `StrmTool.dll` 放入 `StrmTool` 文件夹中，重启 Emby 服务器。
 4. 进入 **Emby 管理后台 → 插件**，看到 `StrmTool` 状态为 `Active` 即表示安装成功，插件将自动开始工作。

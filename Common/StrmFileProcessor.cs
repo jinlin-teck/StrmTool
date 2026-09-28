@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Persistence;
@@ -52,10 +53,33 @@ namespace StrmTool.Common
 
             try
             {
-                if (MediaInfoHelper.HasCompleteMediaInfo(item))
+                // 先纯本地合并同目录新增的外挂歌词（.lrc / .elrc），避免仅因缺少本地歌词而触发远程探测，
+                // 同时保证即使后续远程源不可用，本地歌词也能先行入库。
+                bool lyricsMerged = _mediaInfoManager.TryMergeLocalLyrics(item, cancellationToken);
+
+                bool hasProbedAudioTags = !AudioMetadataHelper.IsMusicLibraryAudio(item) ||
+                                          _mediaInfoManager.HasProbedAudioTagsInJson(item);
+                if (MediaInfoHelper.HasCompleteMediaInfo(item, _mediaInfoManager))
                 {
+                    if (!hasProbedAudioTags || lyricsMerged)
+                    {
+                        var upgraded = await _mediaInfoManager.ExportItemAsync(
+                            item, cancellationToken, audioTagsProbed: true).ConfigureAwait(false);
+                        if (upgraded)
+                        {
+                            LogHelper.Info(_logger, $"{item.Name}: Upgraded JSON with existing DB metadata and local lyrics");
+                            return ProcessResult.UpgradedJsonFromDb;
+                        }
+                    }
+
                     LogHelper.Info(_logger, $"{item.Name} already has complete media info, skipping...");
                     return ProcessResult.Skipped;
+                }
+
+                if (!hasProbedAudioTags)
+                {
+                    LogHelper.Debug(_logger, $"JSON lacks probed audio tags for {item.Name}, falling back to remote probing...");
+                    return ProcessResult.NeedsAudioTagProbe;
                 }
 
                 LogHelper.Debug(_logger, $"Attempting to restore {item.Name} from JSON...");
@@ -98,28 +122,45 @@ namespace StrmTool.Common
             {
                 LogHelper.Debug(_logger, $"Probing media info for {item.Name}...");
 
-                // 探测前再确认一次：等待期间媒体信息可能已被其他途径补全
+                // 探测前先纯本地合并可能缺失的同目录外挂歌词，再确认是否仍需远程探测
+                bool lyricsMerged = _mediaInfoManager.TryMergeLocalLyrics(item, cancellationToken);
                 var beforeStreams = item.GetMediaStreams() ?? new List<MediaStream>();
-                if (MediaInfoHelper.HasCompleteMediaInfo(beforeStreams))
+                bool hasProbedAudioTags = !AudioMetadataHelper.IsMusicLibraryAudio(item) ||
+                                          _mediaInfoManager.HasProbedAudioTagsInJson(item);
+                if (MediaInfoHelper.HasCompleteMediaInfo(item, beforeStreams, _mediaInfoManager))
                 {
+                    if (!hasProbedAudioTags || lyricsMerged)
+                    {
+                        var upgraded = await _mediaInfoManager.ExportItemAsync(
+                            item, cancellationToken, audioTagsProbed: true).ConfigureAwait(false);
+                        if (upgraded)
+                        {
+                            LogHelper.Info(_logger, $"{item.Name}: Upgraded JSON with existing DB metadata and local lyrics");
+                            return ProcessResult.UpgradedJsonFromDb;
+                        }
+                    }
+
                     LogHelper.Info(_logger, $"{item.Name} already has complete media info, skipping...");
                     return ProcessResult.Skipped;
                 }
 
                 var streams = await _mediaInfoService.ProbeAndSaveMediaStreamsAsync(item, cancellationToken).ConfigureAwait(false);
 
-                var (hasVideo, hasAudio) = MediaInfoHelper.GetStreamSummary(item.GetMediaStreams());
+                // 必须基于本次远程探测实际返回的 streams 判断成败，不能读取 DB 中已有的旧流，
+                // 否则已有音频流但缺少标签的项在远程探测失败时会被误判成功并写入 AudioTagsProbed = true。
+                var (hasVideo, hasAudio) = MediaInfoHelper.GetStreamSummary(streams);
 
                 LogHelper.Info(_logger, $"{item.Name}: Probed media info. Streams {beforeStreams.Count}→{streams.Count}. Video:{hasVideo}, Audio:{hasAudio}");
 
-                // 只要有任意一种媒体流就算成功
+                // 本次探测必须返回至少一种视频流或音频流才算探测成功
                 if (!hasVideo && !hasAudio)
                 {
                     LogHelper.Warn(_logger, $"{item.Name} may still lack full media info");
                     return ProcessResult.ExtractionFailed;
                 }
 
-                var exportSucceeded = await _mediaInfoManager.ExportItemAsync(item, cancellationToken).ConfigureAwait(false);
+                var exportSucceeded = await _mediaInfoManager.ExportItemAsync(
+                    item, cancellationToken, audioTagsProbed: true).ConfigureAwait(false);
                 if (!exportSucceeded)
                 {
                     LogHelper.Warn(_logger, $"{item.Name}: Media info extraction succeeded but JSON export failed");
@@ -160,6 +201,16 @@ namespace StrmTool.Common
         /// 从JSON恢复失败（JSON缺失、损坏或内容无效），调用方可降级到探测
         /// </summary>
         RestoreFailed,
+
+        /// <summary>
+        /// 本地JSON为旧版（尚未记录探测过的音频标签），且DB缺少音频元数据，需远程探测补全
+        /// </summary>
+        NeedsAudioTagProbe,
+
+        /// <summary>
+        /// DB已具备完整流与音频元数据，已直接从DB导出升级旧版JSON（无需远程探测）
+        /// </summary>
+        UpgradedJsonFromDb,
 
         /// <summary>
         /// 提取并导出成功

@@ -90,7 +90,7 @@ namespace StrmTool.Handlers
             }
 
             // 已具备完整媒体信息的项无需排队，直接跳过（避免无意义的延迟和任务入队）
-            if (MediaInfoHelper.HasCompleteMediaInfo(e.Item))
+            if (MediaInfoHelper.HasCompleteMediaInfo(e.Item, _mediaInfoManager))
             {
                 Common.LogHelper.Debug(_logger, $"{e.Item.Name} already has complete media info, skipping");
                 return;
@@ -137,7 +137,9 @@ namespace StrmTool.Handlers
                 if (MediaInfoHelper.ShouldRestoreFromJson(item, _mediaInfoManager))
                 {
                     var restoreResult = await _strmFileProcessor.TryRestoreFromJsonAsync(item, cancellationToken).ConfigureAwait(false);
-                    if (restoreResult == ProcessResult.RestoredFromJson || restoreResult == ProcessResult.Skipped)
+                    if (restoreResult == ProcessResult.RestoredFromJson ||
+                        restoreResult == ProcessResult.UpgradedJsonFromDb ||
+                        restoreResult == ProcessResult.Skipped)
                     {
                         LogProcessResult(item.Name, restoreResult);
                         return;
@@ -183,6 +185,12 @@ namespace StrmTool.Handlers
                     break;
                 case ProcessResult.RestoredFromJson:
                     Common.LogHelper.Info(_logger, $"{itemName} successfully restored from JSON");
+                    break;
+                case ProcessResult.UpgradedJsonFromDb:
+                    Common.LogHelper.Info(_logger, $"{itemName} upgraded legacy JSON from existing DB metadata");
+                    break;
+                case ProcessResult.NeedsAudioTagProbe:
+                    Common.LogHelper.Debug(_logger, $"{itemName} legacy JSON lacks audio tags, probing remote media");
                     break;
                 case ProcessResult.RestoreFailed:
                     Common.LogHelper.Debug(_logger, $"{itemName} JSON restore failed, falling back to probing");

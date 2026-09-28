@@ -2,9 +2,9 @@
 
 [中文文档 (README.md)](./README.md)
 
-**StrmTool** is a `.strm` media enhancement plugin built for Emby media server. By pre-extracting technical media information (video/audio codecs, resolution, subtitles, images, etc.) and exporting it to local JSON backups, it dramatically improves library presentation and playback startup speed for cloud and remote media streams. Lost media info can also be restored from backups in one click.
+**StrmTool** is a `.strm` media enhancement plugin built for Emby media server. By pre-extracting technical media information (video/audio codecs, resolution, subtitles, images, music tags, external lyrics, etc.) and exporting it to local JSON backups, it dramatically improves library presentation and playback startup speed for cloud and remote media streams. Lost media info can also be restored from backups in one click.
 
-> **Current Version**: `v2.6.0` (Targets **Emby 4.8+**; tested on 4.8.11.0 and 4.9.1.80, please test other versions yourself. If you are using Jellyfin, please go to [StrmTool-Jellyfin](https://github.com/jinlin-teck/StrmTool-Jellyfin) — the Jellyfin version now lives in a separate repository, built on .NET 10 / Jellyfin 12, and is no longer updated here.)
+> **Current Version**: `v2.7.0` (Targets **Emby 4.8+**; tested on 4.8.11.0 and 4.9.1.80, please test other versions yourself. If you are using Jellyfin, please go to [StrmTool-Jellyfin](https://github.com/jinlin-teck/StrmTool-Jellyfin) — the Jellyfin version now lives in a separate repository, built on .NET 10 / Jellyfin 12, and is no longer updated here.)
 >
 > **Recommended Companion**: Need to batch-generate `.strm` files from OpenList / Alist cloud drives? Check out my companion project [openlist-strm](https://github.com/jinlin-teck/openlist-strm) — a lightweight `.strm` generator service with WebUI that pairs seamlessly with this plugin.
 
@@ -18,6 +18,7 @@
 - **Faster Playback Startup**: Eliminates on-the-fly remote probing when starting playback, so streams start faster.
 - **Smart Deduplication**: Only processes `.strm` files that lack complete media information; items with complete info are skipped to avoid redundant operations.
 - **Scheduled Safety Net**: A built-in scheduled task (default daily at 3 AM, customizable) scans the whole library to ensure nothing is missed.
+- **🎵 Full Music `.strm` Support**: Automatically extracts embedded tags (title, album, artists, album artists, composers, genres, track/disc numbers, release year, etc.) for `.strm` tracks in music libraries, falls back to `Artist\Album\Track` folder structure and filename parsing when tags are missing, triggers Emby to build `MusicAlbum` / `MusicArtist` entities with local covers, and attaches sidecar `.lrc` / `.elrc` lyrics.
 
 ### 2. 💾 Media Info Backup & One-Click Restore
 
@@ -35,7 +36,7 @@
 
 ### Manual Installation
 
-1. Download the latest `StrmTool.dll` from the [Releases](https://github.com/jinlin-teck/StrmTool/releases) page (choose the file with the `-emby` suffix, e.g., `StrmTool_2.6.0.0-emby.zip`).
+1. Download the latest `StrmTool.dll` from the [Releases](https://github.com/jinlin-teck/StrmTool/releases) page.
 2. Create a `StrmTool` folder inside your Emby `plugins` directory (e.g., `/config/plugins/StrmTool` in Docker).
 3. Copy `StrmTool.dll` into the `StrmTool` folder and restart the Emby server.
 4. Go to **Emby Dashboard → Plugins** and verify `StrmTool` shows as `Active`. The plugin starts working automatically.

@@ -1,3 +1,4 @@
+using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Persistence;
@@ -35,7 +36,8 @@ namespace StrmTool.Tasks
             var processor = new StrmFileProcessor(Logger, LibraryManager, ItemRepository, _mediaProbeManager, JsonSerializer, mediaInfoManager);
 
             var strmItems = MediaInfoHelper.GetAllStrmFiles(LibraryManager)
-                .Where(i => !MediaInfoHelper.HasCompleteMediaInfo(i))
+                .Where(i => !MediaInfoHelper.HasCompleteMediaInfo(i, mediaInfoManager) ||
+                            (AudioMetadataHelper.IsMusicLibraryAudio(i, LibraryManager) && !mediaInfoManager.HasProbedAudioTagsInJson(i)))
                 .ToList();
             Common.LogHelper.Info(Logger, $"{strmItems.Count} strm files need media probing");
 
@@ -72,8 +74,10 @@ namespace StrmTool.Tasks
                         restoreResult = await processor.TryRestoreFromJsonAsync(item, cancellationToken).ConfigureAwait(false);
                     }
 
-                    // 无 JSON、JSON 损坏或恢复失败时，在同一个槽位内延迟后降级到远程探测
-                    if (restoreResult != ProcessResult.RestoredFromJson && restoreResult != ProcessResult.Skipped)
+                    // 无 JSON、JSON 损坏、旧版 JSON 缺音频标签且 DB 也缺失时，在同一个槽位内延迟后降级到远程探测
+                    if (restoreResult != ProcessResult.RestoredFromJson &&
+                        restoreResult != ProcessResult.UpgradedJsonFromDb &&
+                        restoreResult != ProcessResult.Skipped)
                     {
                         if (delayMs > 0)
                         {
