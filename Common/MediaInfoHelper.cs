@@ -195,7 +195,10 @@ namespace StrmTool.Common
         }
 
         /// <summary>
-        /// 获取库中所有的STRM文件
+        /// 获取库中所有的STRM文件。
+        /// 除 Movie/Episode/Video/Audio 外还包含 Trailer 与 MusicVideo：
+        /// Emby 会把无法识别的附加片段（如误判的多段视频、extras 目录）归为 Trailer，
+        /// 入库事件会为它们生成 JSON，批量任务也必须覆盖，否则备份丢失后无法自愈，也无法批量恢复。
         /// </summary>
         public static List<BaseItem> GetAllStrmFiles(ILibraryManager libraryManager)
         {
@@ -203,7 +206,7 @@ namespace StrmTool.Common
             {
                 HasPath = true,
                 Recursive = true,
-                IncludeItemTypes = new[] { "Movie", "Episode", "Video", "Audio" }
+                IncludeItemTypes = new[] { "Movie", "Episode", "Video", "Audio", "Trailer", "MusicVideo" }
             };
 
             return libraryManager.GetItemList(query)
