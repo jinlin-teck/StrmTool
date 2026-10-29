@@ -123,16 +123,39 @@ namespace StrmTool.Common
             CancellationToken cancellationToken,
             AudioMetadataInfo? cachedAudioMetadata = null)
         {
-            item.Size = mediaSourceInfo.Size.GetValueOrDefault();
-            item.RunTimeTicks = mediaSourceInfo.RunTimeTicks;
-            item.Container = mediaSourceInfo.Container;
-            item.TotalBitrate = mediaSourceInfo.Bitrate.GetValueOrDefault();
+            // 只写入 JSON 中确实存在的值，避免旧版备份缺字段时把数据库里的有效值清零
+            if (mediaSourceInfo.Size.HasValue && mediaSourceInfo.Size.Value > 0)
+            {
+                item.Size = mediaSourceInfo.Size.Value;
+            }
+
+            if (mediaSourceInfo.RunTimeTicks.HasValue)
+            {
+                item.RunTimeTicks = mediaSourceInfo.RunTimeTicks;
+            }
+
+            if (!string.IsNullOrWhiteSpace(mediaSourceInfo.Container))
+            {
+                item.Container = mediaSourceInfo.Container;
+            }
+
+            if (mediaSourceInfo.Bitrate.HasValue && mediaSourceInfo.Bitrate.Value > 0)
+            {
+                item.TotalBitrate = mediaSourceInfo.Bitrate.Value;
+            }
 
             var videoStream = GetHighestResolutionVideoStream(mediaSourceInfo.MediaStreams);
             if (videoStream != null)
             {
-                item.Width = videoStream.Width ?? 0;
-                item.Height = videoStream.Height ?? 0;
+                if (videoStream.Width.HasValue)
+                {
+                    item.Width = videoStream.Width.Value;
+                }
+
+                if (videoStream.Height.HasValue)
+                {
+                    item.Height = videoStream.Height.Value;
+                }
             }
 
             if (item is Audio audio)
@@ -211,7 +234,7 @@ namespace StrmTool.Common
         /// <summary>
         /// 从媒体流列表中获取最高分辨率的视频流
         /// </summary>
-        public static MediaStream? GetHighestResolutionVideoStream(IEnumerable<MediaStream>? streams)
+        private static MediaStream? GetHighestResolutionVideoStream(IEnumerable<MediaStream>? streams)
         {
             if (streams == null)
                 return null;

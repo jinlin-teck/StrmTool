@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Entities;
@@ -64,7 +63,7 @@ namespace StrmTool.Common
 
                 if (mediaInfo?.MediaStreams != null && mediaInfo.MediaStreams.Count > 0)
                 {
-                    var streamsToSave = AudioMetadataHelper.PrepareMediaStreamsForSave(item, mediaInfo.MediaStreams);
+                    var streamsToSave = MediaStreamMerger.PrepareMediaStreamsForSave(item, mediaInfo.MediaStreams);
                     _itemRepository.SaveMediaStreams(item.InternalId, streamsToSave, cancellationToken);
 
                     MediaInfoHelper.ApplyMediaSourceInfo(item, mediaInfo, _libraryManager, cancellationToken);
@@ -114,29 +113,6 @@ namespace StrmTool.Common
             return MediaProtocol.File;
         }
 
-        /// <summary>
-        /// 验证媒体路径格式是否有效（支持URL、本地路径、UNC路径等Emby可访问的任何格式）
-        /// </summary>
-        private static bool IsValidMediaPath(string path)
-        {
-            // 排除空字符串和明显无效的内容（如注释行）
-            if (string.IsNullOrWhiteSpace(path))
-                return false;
-
-            // 排除以 # 开头的注释行
-            if (path.TrimStart().StartsWith("#", StringComparison.Ordinal))
-                return false;
-
-            // 其他所有非空内容都认为是有效的，交给Emby处理
-            // 支持格式：
-            // - URL: http://, https://, rtmp://, rtsp://, ftp://
-            // - Linux路径: /media/movies/somemovie.mp4
-            // - Windows路径: C:\Movies\some.mov, \\server\share\movie.mp4
-            // - 相对路径: movies/somemovie.mp4
-            // - 甚至简单的文件名
-            return true;
-        }
-
         private static async Task<string> ReadStrmSourcePathAsync(string strmFilePath, ILogger logger, CancellationToken cancellationToken)
         {
             try
@@ -148,18 +124,19 @@ namespace StrmTool.Common
                 }
 
                 using var reader = new StreamReader(strmFilePath);
-                string? line;
                 while (true)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    line = await reader.ReadLineAsync().ConfigureAwait(false);
+                    string? line = await reader.ReadLineAsync().ConfigureAwait(false);
                     if (line == null)
                     {
                         break;
                     }
 
+                    // 跳过空行与以 # 开头的注释行，其余内容都交给 Emby 判断（URL / 本地路径 / UNC / 相对路径）
                     var sourcePath = line.Trim();
-                    if (!string.IsNullOrWhiteSpace(sourcePath) && IsValidMediaPath(sourcePath))
+                    if (!string.IsNullOrWhiteSpace(sourcePath) &&
+                        !sourcePath.StartsWith("#", StringComparison.Ordinal))
                     {
                         return sourcePath;
                     }

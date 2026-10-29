@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Serialization;
@@ -53,6 +54,17 @@ namespace StrmTool.Tasks
         protected MediaInfoManager CreateMediaInfoManager()
         {
             return new MediaInfoManager(Logger, LibraryManager, ItemRepository, JsonSerializer);
+        }
+
+        /// <summary>
+        /// 创建 STRM 处理器实例（依赖已组装的 MediaInfoManager）
+        /// </summary>
+        protected StrmFileProcessor CreateFileProcessor(
+            IMediaProbeManager mediaProbeManager,
+            MediaInfoManager mediaInfoManager)
+        {
+            return new StrmFileProcessor(
+                Logger, LibraryManager, ItemRepository, mediaProbeManager, mediaInfoManager);
         }
     }
 }

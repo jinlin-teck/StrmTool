@@ -3,128 +3,88 @@ using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Controller.MediaEncoding;
-using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Logging;
-using MediaBrowser.Model.Serialization;
 using StrmTool.Common;
 
 namespace StrmTool.Handlers
 {
-    public class ItemAddedEventHandler : IDisposable
+    public class ItemAddedEventHandler
     {
         private readonly ILogger _logger;
         private readonly CancellationTokenSource? _cancellationTokenSource;
-        private readonly SemaphoreSlim _semaphore;
         private readonly MediaInfoManager _mediaInfoManager;
         private readonly StrmFileProcessor _strmFileProcessor;
         private int _pendingTaskCount;
         private const int MaxPendingTasks = 100;
-        private bool _disposed;
 
         public ItemAddedEventHandler(
             ILogger logger,
-            ILibraryManager libraryManager,
-            IItemRepository itemRepository,
-            IJsonSerializer jsonSerializer,
-            IMediaProbeManager mediaProbeManager,
-            CancellationTokenSource? cancellationTokenSource = null,
-            MediaInfoManager? mediaInfoManager = null,
-            StrmFileProcessor? strmFileProcessor = null)
+            MediaInfoManager mediaInfoManager,
+            StrmFileProcessor strmFileProcessor,
+            CancellationTokenSource? cancellationTokenSource = null)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            if (libraryManager == null) throw new ArgumentNullException(nameof(libraryManager));
-            if (itemRepository == null) throw new ArgumentNullException(nameof(itemRepository));
-            if (jsonSerializer == null) throw new ArgumentNullException(nameof(jsonSerializer));
-            if (mediaProbeManager == null) throw new ArgumentNullException(nameof(mediaProbeManager));
+            _mediaInfoManager = mediaInfoManager ?? throw new ArgumentNullException(nameof(mediaInfoManager));
+            _strmFileProcessor = strmFileProcessor ?? throw new ArgumentNullException(nameof(strmFileProcessor));
             _cancellationTokenSource = cancellationTokenSource;
-
-            // 使用用户配置的 MaxConcurrency，默认为3
-            var config = Plugin.GetSafeConfiguration();
-            var maxConcurrency = config.MaxConcurrency;
-            _semaphore = new SemaphoreSlim(maxConcurrency, maxConcurrency);
-
-            _mediaInfoManager = mediaInfoManager ?? new MediaInfoManager(logger, libraryManager, itemRepository, jsonSerializer);
-            _strmFileProcessor = strmFileProcessor ?? new StrmFileProcessor(
-                logger, libraryManager, itemRepository, mediaProbeManager, jsonSerializer, _mediaInfoManager);
-        }
-
-        public void Dispose()
-        {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        protected virtual void Dispose(bool disposing)
-        {
-            if (_disposed)
-                return;
-
-            if (disposing)
-            {
-                _semaphore.Dispose();
-            }
-
-            _disposed = true;
         }
 
         public void OnItemAdded(object sender, ItemChangeEventArgs e)
         {
-            if (e.Item == null || string.IsNullOrEmpty(e.Item.Path) ||
-                !MediaInfoHelper.IsStrmFile(e.Item.Path))
+            try
             {
-                return;
-            }
-
-            if (_cancellationTokenSource?.IsCancellationRequested == true)
-            {
-                return;
-            }
-
-            // 每个事件只取一次配置
-            var config = Plugin.GetSafeConfiguration();
-            if (!config.EnableAutoExtract)
-            {
-                Common.LogHelper.Debug(_logger, $"Auto-extract is disabled, skipping: {e.Item.Name}");
-                return;
-            }
-
-            // 已具备完整媒体信息的项无需排队，直接跳过（避免无意义的延迟和任务入队）
-            if (MediaInfoHelper.HasCompleteMediaInfo(e.Item, _mediaInfoManager))
-            {
-                Common.LogHelper.Debug(_logger, $"{e.Item.Name} already has complete media info, skipping");
-                return;
-            }
-
-            Common.LogHelper.Info(_logger, $"New strm file detected: {e.Item.Name}");
-
-            // 检查待处理任务数量，防止内存压力
-            if (Interlocked.Increment(ref _pendingTaskCount) > MaxPendingTasks)
-            {
-                Interlocked.Decrement(ref _pendingTaskCount);
-                Common.LogHelper.Warn(_logger, $"Too many pending tasks ({MaxPendingTasks}), skipping {e.Item.Name}. It will be processed by scheduled task.");
-                return;
-            }
-
-            var cancellationToken = _cancellationTokenSource?.Token ?? CancellationToken.None;
-            var delayMs = config.ProcessingDelayMs;
-
-            // 使用有限并发控制处理新文件
-            _ = Task.Run(async () =>
-            {
-                try
+                if (e.Item == null || string.IsNullOrEmpty(e.Item.Path) ||
+                    !MediaInfoHelper.IsStrmFile(e.Item.Path))
                 {
-                    await ProcessItemWithErrorHandlingAsync(e.Item, delayMs, cancellationToken);
+                    return;
                 }
-                catch (Exception ex)
+
+                if (_cancellationTokenSource?.IsCancellationRequested == true)
                 {
-                    Common.LogHelper.Error(_logger, $"Unhandled error in background task for {e.Item.Name}: {ex.Message}");
+                    return;
                 }
-                finally
+
+                // 每个事件只取一次配置
+                var config = Plugin.GetSafeConfiguration();
+                if (!config.EnableAutoExtract)
+                {
+                    Common.LogHelper.Debug(_logger, $"Auto-extract is disabled, skipping: {e.Item.Name}");
+                    return;
+                }
+
+                // 检查待处理任务数量，防止内存压力
+                if (Interlocked.Increment(ref _pendingTaskCount) > MaxPendingTasks)
                 {
                     Interlocked.Decrement(ref _pendingTaskCount);
+                    Common.LogHelper.Warn(_logger, $"Too many pending tasks ({MaxPendingTasks}), skipping {e.Item.Name}. It will be processed by scheduled task.");
+                    return;
                 }
-            }, cancellationToken);
+
+                var cancellationToken = _cancellationTokenSource?.Token ?? CancellationToken.None;
+                var delayMs = config.ProcessingDelayMs;
+
+                // 不把 token 传给 Task.Run：即使任务在调度前被取消，委托仍会执行到 finally 里的计数回收
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await ProcessItemWithErrorHandlingAsync(e.Item, delayMs, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        Common.LogHelper.Error(_logger, $"Unhandled error in background task for {e.Item.Name}: {ex.Message}");
+                    }
+                    finally
+                    {
+                        Interlocked.Decrement(ref _pendingTaskCount);
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                // 事件处理器绝不能把异常抛回 Emby 的事件管线
+                Common.LogHelper.Error(_logger, $"Error handling item added event: {ex.Message}");
+            }
         }
 
         private async Task ProcessItemWithErrorHandlingAsync(BaseItem item, int delayMs, CancellationToken cancellationToken)
@@ -133,37 +93,52 @@ namespace StrmTool.Handlers
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
+                // 完整性检查放在后台线程，避免同步仓储/文件 IO 阻塞媒体库扫描线程；
+                // 同时把日志也移到这里，避免全库扫描时对已完成条目刷屏。
+                if (MediaInfoHelper.HasCompleteMediaInfo(item, _mediaInfoManager) &&
+                    MediaInfoHelper.HasJsonFile(item, _mediaInfoManager))
+                {
+                    Common.LogHelper.Debug(_logger, $"{item.Name} already has complete media info, skipping");
+                    return;
+                }
+
+                Common.LogHelper.Info(_logger, $"New strm file detected: {item.Name}");
+
                 // 从JSON恢复是纯本地操作：不延迟、不占用探测并发槽
                 if (MediaInfoHelper.ShouldRestoreFromJson(item, _mediaInfoManager))
                 {
                     var restoreResult = await _strmFileProcessor.TryRestoreFromJsonAsync(item, cancellationToken).ConfigureAwait(false);
-                    if (restoreResult == ProcessResult.RestoredFromJson ||
-                        restoreResult == ProcessResult.UpgradedJsonFromDb ||
-                        restoreResult == ProcessResult.Skipped)
+                    LogProcessResult(item.Name, restoreResult);
+                    if (restoreResult.IsTerminalSuccess())
                     {
-                        LogProcessResult(item.Name, restoreResult);
                         return;
                     }
-
-                    LogProcessResult(item.Name, restoreResult);
                 }
 
-                // 需要探测远程媒体：先延迟再占用并发槽，避免对远程服务器造成压力
-                if (delayMs > 0)
+                // 数据库已完整时只在本地补备份，不延迟、不占远程探测槽
+                var ensured = await _strmFileProcessor.TryEnsureJsonFromDatabaseAsync(item, cancellationToken).ConfigureAwait(false);
+                if (ensured != null)
                 {
-                    Common.LogHelper.Debug(_logger, $"Applying delay: {delayMs}ms before processing {item.Name}");
-                    await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
+                    LogProcessResult(item.Name, ensured.Value);
+                    return;
                 }
 
-                await _semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+                // 需要探测远程媒体：先占用全局探测槽，再应用延迟，避免对远程服务器造成压力
+                var limiter = await ProcessingConcurrencyLimiter.AcquireAsync(cancellationToken).ConfigureAwait(false);
                 try
                 {
-                    var result = await _strmFileProcessor.ExtractAndExportAsync(item, cancellationToken).ConfigureAwait(false);
+                    if (delayMs > 0)
+                    {
+                        Common.LogHelper.Debug(_logger, $"Applying delay: {delayMs}ms before processing {item.Name}");
+                        await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
+                    }
+
+                    var result = await _strmFileProcessor.ProbeAndExportAsync(item, cancellationToken).ConfigureAwait(false);
                     LogProcessResult(item.Name, result);
                 }
                 finally
                 {
-                    _semaphore.Release();
+                    ProcessingConcurrencyLimiter.Release(limiter);
                 }
             }
             catch (OperationCanceledException)

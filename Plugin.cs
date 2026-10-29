@@ -24,35 +24,34 @@ namespace StrmTool
         public static Plugin? Instance { get; private set; }
         public static string PluginName => "StrmTool";
 
-        public static Plugin RequireInstance()
-        {
-            lock (_lock)
-            {
-                return Instance ?? throw new InvalidOperationException("Plugin is not initialized");
-            }
-        }
-
         public static PluginConfiguration GetSafeConfiguration()
         {
             try
             {
                 var config = Instance?.Configuration;
-                if (config == null || !config.IsValid)
+                if (config == null)
                 {
                     return new PluginConfiguration();
                 }
                 return config;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
                 // 插件初始化期间可能无法访问 Configuration，返回默认值
+                var logger = Instance?._logger;
+                if (logger != null)
+                {
+                    Common.LogHelper.Debug(logger, $"Failed to read plugin configuration, using defaults: {ex.Message}");
+                }
+
                 return new PluginConfiguration();
             }
         }
 
+        private readonly ILogger? _logger;
         private ItemAddedEventHandler? _eventHandler;
         private ILibraryManager? _libraryManager;
-        private CancellationTokenSource? _cancellationTokenSource;
+        private readonly CancellationTokenSource? _cancellationTokenSource;
         private bool _disposed;
 
         public Plugin(
@@ -69,6 +68,7 @@ namespace StrmTool
             {
                 Instance = this;
             }
+            _logger = logger;
             _libraryManager = libraryManager;
             _cancellationTokenSource = new CancellationTokenSource();
 
@@ -86,10 +86,9 @@ namespace StrmTool
             {
                 var mediaInfoManager = new MediaInfoManager(logger, libraryManager, itemRepository, jsonSerializer);
                 var strmFileProcessor = new StrmFileProcessor(
-                    logger, libraryManager, itemRepository, mediaProbeManager, jsonSerializer, mediaInfoManager);
+                    logger, libraryManager, itemRepository, mediaProbeManager, mediaInfoManager);
                 _eventHandler = new ItemAddedEventHandler(
-                    logger, libraryManager, itemRepository, jsonSerializer, mediaProbeManager,
-                    _cancellationTokenSource, mediaInfoManager, strmFileProcessor);
+                    logger, mediaInfoManager, strmFileProcessor, _cancellationTokenSource);
                 libraryManager.ItemAdded += _eventHandler.OnItemAdded;
 
                 Common.LogHelper.Info(logger, "Item added event handler registered at plugin level");
@@ -150,9 +149,9 @@ namespace StrmTool
             }
             finally
             {
-                _eventHandler?.Dispose();
                 _eventHandler = null;
                 _libraryManager = null;
+                MediaInfoManager.ClearCachedState();
             }
         }
 
@@ -222,7 +221,6 @@ namespace StrmTool
         private bool _enableAutoExtract = true;
         private int _processingDelayMs = CommonConfiguration.StandardProcessingDelayMs;
         private int _maxConcurrency = CommonConfiguration.MaxConcurrency;
-        private bool _isValid = true;
 
         public bool EnableAutoExtract
         {
@@ -241,9 +239,5 @@ namespace StrmTool
             get => _maxConcurrency;
             set => _maxConcurrency = Math.Clamp(value, 1, 10);
         }
-
-        public bool IsValid => _isValid &&
-            _processingDelayMs >= 0 && _processingDelayMs <= 20000 &&
-            _maxConcurrency >= 1 && _maxConcurrency <= 10;
     }
 }

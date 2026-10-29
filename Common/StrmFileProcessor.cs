@@ -3,18 +3,16 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Entities;
-using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Logging;
-using MediaBrowser.Model.Serialization;
 
 namespace StrmTool.Common
 {
     /// <summary>
-    /// STRM文件处理类，提供恢复与探测两个明确操作。
+    /// STRM文件处理类，提供恢复、本地补备份与远程探测三个明确操作。
     /// 不在内部自动从恢复降级到探测——降级涉及节流策略，由持有并发信号量的调用方编排。
     /// </summary>
     public class StrmFileProcessor
@@ -28,16 +26,14 @@ namespace StrmTool.Common
             ILibraryManager libraryManager,
             IItemRepository itemRepository,
             IMediaProbeManager mediaProbeManager,
-            IJsonSerializer jsonSerializer,
-            MediaInfoManager? mediaInfoManager = null)
+            MediaInfoManager mediaInfoManager)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             if (libraryManager == null) throw new ArgumentNullException(nameof(libraryManager));
             if (itemRepository == null) throw new ArgumentNullException(nameof(itemRepository));
             if (mediaProbeManager == null) throw new ArgumentNullException(nameof(mediaProbeManager));
-            if (jsonSerializer == null) throw new ArgumentNullException(nameof(jsonSerializer));
 
-            _mediaInfoManager = mediaInfoManager ?? new MediaInfoManager(logger, libraryManager, itemRepository, jsonSerializer);
+            _mediaInfoManager = mediaInfoManager ?? throw new ArgumentNullException(nameof(mediaInfoManager));
             _mediaInfoService = new StrmMediaInfoService(logger, libraryManager, mediaProbeManager, itemRepository);
         }
 
@@ -109,10 +105,64 @@ namespace StrmTool.Common
         }
 
         /// <summary>
+        /// 纯本地尝试：合并本地歌词，并在数据库已具备完整媒体信息时补写/升级 JSON 备份。
+        /// 返回 null 表示必须发起远程探测；返回其他值表示本地已完成（成功或失败）。
+        /// </summary>
+        public async Task<ProcessResult?> TryEnsureJsonFromDatabaseAsync(
+            BaseItem item,
+            CancellationToken cancellationToken = default)
+        {
+            using var monitor = new PerformanceMonitor(_logger, "Ensure", item.Name);
+
+            try
+            {
+                bool lyricsMerged = _mediaInfoManager.TryMergeLocalLyrics(item, cancellationToken);
+                var streams = item.GetMediaStreams() ?? new List<MediaStream>();
+                bool hasProbedAudioTags = !AudioMetadataHelper.IsMusicLibraryAudio(item) ||
+                                          _mediaInfoManager.HasProbedAudioTagsInJson(item);
+
+                if (!MediaInfoHelper.HasCompleteMediaInfo(item, streams, _mediaInfoManager))
+                {
+                    return null;
+                }
+
+                // 数据库已有完整信息时仍需确保本地有 JSON 备份（例如 Emby 自行探测过、上次导出失败或备份被删除）
+                bool jsonMissing = !MediaInfoHelper.HasJsonFile(item, _mediaInfoManager);
+                if (jsonMissing || !hasProbedAudioTags || lyricsMerged)
+                {
+                    var exported = await _mediaInfoManager.ExportItemAsync(
+                        item, cancellationToken, audioTagsProbed: true).ConfigureAwait(false);
+                    if (exported)
+                    {
+                        LogHelper.Info(_logger, jsonMissing
+                            ? $"{item.Name}: Backed up existing DB media info to JSON"
+                            : $"{item.Name}: Upgraded JSON with existing DB metadata and local lyrics");
+                        return ProcessResult.UpgradedJsonFromDb;
+                    }
+
+                    LogHelper.Warn(_logger, $"{item.Name}: Local JSON export failed, will retry on next run");
+                    return ProcessResult.ExtractionFailed;
+                }
+
+                LogHelper.Info(_logger, $"{item.Name} already has complete media info, skipping...");
+                return ProcessResult.Skipped;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                LogHelper.Error(_logger, $"Error ensuring JSON backup for {item.Name} ({item.Path}): {ex.Message}");
+                return ProcessResult.Failed;
+            }
+        }
+
+        /// <summary>
         /// 探测远程媒体信息并导出到 JSON 文件。
         /// 会访问远程媒体源，调用方负责并发限制与探测前延迟。
         /// </summary>
-        public async Task<ProcessResult> ExtractAndExportAsync(
+        public async Task<ProcessResult> ProbeAndExportAsync(
             BaseItem item,
             CancellationToken cancellationToken = default)
         {
@@ -122,28 +172,7 @@ namespace StrmTool.Common
             {
                 LogHelper.Debug(_logger, $"Probing media info for {item.Name}...");
 
-                // 探测前先纯本地合并可能缺失的同目录外挂歌词，再确认是否仍需远程探测
-                bool lyricsMerged = _mediaInfoManager.TryMergeLocalLyrics(item, cancellationToken);
                 var beforeStreams = item.GetMediaStreams() ?? new List<MediaStream>();
-                bool hasProbedAudioTags = !AudioMetadataHelper.IsMusicLibraryAudio(item) ||
-                                          _mediaInfoManager.HasProbedAudioTagsInJson(item);
-                if (MediaInfoHelper.HasCompleteMediaInfo(item, beforeStreams, _mediaInfoManager))
-                {
-                    if (!hasProbedAudioTags || lyricsMerged)
-                    {
-                        var upgraded = await _mediaInfoManager.ExportItemAsync(
-                            item, cancellationToken, audioTagsProbed: true).ConfigureAwait(false);
-                        if (upgraded)
-                        {
-                            LogHelper.Info(_logger, $"{item.Name}: Upgraded JSON with existing DB metadata and local lyrics");
-                            return ProcessResult.UpgradedJsonFromDb;
-                        }
-                    }
-
-                    LogHelper.Info(_logger, $"{item.Name} already has complete media info, skipping...");
-                    return ProcessResult.Skipped;
-                }
-
                 var streams = await _mediaInfoService.ProbeAndSaveMediaStreamsAsync(item, cancellationToken).ConfigureAwait(false);
 
                 // 必须基于本次远程探测实际返回的 streams 判断成败，不能读取 DB 中已有的旧流，
@@ -226,5 +255,18 @@ namespace StrmTool.Common
         /// 处理失败
         /// </summary>
         Failed
+    }
+
+    /// <summary>
+    /// ProcessResult 的终态判定，集中维护「无需继续探测」的语义
+    /// </summary>
+    public static class ProcessResultExtensions
+    {
+        public static bool IsTerminalSuccess(this ProcessResult result)
+        {
+            return result == ProcessResult.RestoredFromJson ||
+                   result == ProcessResult.UpgradedJsonFromDb ||
+                   result == ProcessResult.Skipped;
+        }
     }
 }

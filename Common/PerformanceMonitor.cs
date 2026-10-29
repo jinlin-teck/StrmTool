@@ -26,7 +26,7 @@ namespace StrmTool.Common
         /// <summary>
         /// 停止监控并记录耗时
         /// </summary>
-        public void Stop()
+        private void Stop()
         {
             if (_disposed)
                 return;

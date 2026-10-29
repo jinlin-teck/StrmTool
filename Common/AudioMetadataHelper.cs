@@ -1,13 +1,10 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Text.RegularExpressions;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.MediaInfo;
@@ -15,41 +12,11 @@ using MediaBrowser.Model.MediaInfo;
 namespace StrmTool.Common
 {
     /// <summary>
-    /// 随 -mediainfo.json 持久化导出的音频元数据模型
-    /// </summary>
-    public class AudioMetadataInfo
-    {
-        public bool? AudioTagsProbed { get; set; }
-        public string? Title { get; set; }
-        public string? SortName { get; set; }
-        public string? Album { get; set; }
-        public List<string>? Artists { get; set; }
-        public List<string>? AlbumArtists { get; set; }
-        public List<string>? Composers { get; set; }
-        public List<string>? Genres { get; set; }
-        public int? TrackNumber { get; set; }
-        public int? DiscNumber { get; set; }
-        public int? ProductionYear { get; set; }
-        public DateTimeOffset? PremiereDate { get; set; }
-        public Dictionary<string, string>? ProviderIds { get; set; }
-    }
-
-    /// <summary>
     /// Emby 音频 STRM 元数据提取、标准目录/文件名回退、外挂歌词合并与 JSON 备份恢复辅助类。
+    /// 文件名/目录兜底解析由 AudioFallbackMetadataResolver 承担，媒体流合并由 MediaStreamMerger 承担。
     /// </summary>
     public static class AudioMetadataHelper
     {
-        private static readonly char[] ArtistSplitDelimiters = new[] { '/', ';', '|', '\\', '、' };
-        private static readonly string[] LyricFileExtensions = new[] { ".lrc", ".elrc" };
-
-        private static readonly Regex LeadingTrackRegex = new Regex(
-            @"^(?:(?<disc>\d{1,2})\s*-\s*)?(?<track>\d{1,3})(?:\s*[-._]\s*|\s+)(?<rest>.+)$",
-            RegexOptions.Compiled);
-
-        private static readonly Regex MultiDiscFolderRegex = new Regex(
-            @"^(?:cd|disc|disk)\s*(?<disc>\d{1,2})$",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
         /// <summary>
         /// 判断条目是否为音乐媒体库（ContentType == "music"）中的独立音频曲目
         /// （排除电影/剧集文件夹附带的 ThemeSong 等 Extra 音频，以及非音乐媒体库中的音频）
@@ -114,7 +81,7 @@ namespace StrmTool.Common
                 return false;
             }
 
-            var localLyrics = FindLocalLyricFiles(audio.Path);
+            var localLyrics = MediaStreamMerger.FindLocalLyricFiles(audio.Path);
             if (localLyrics.Count == 0)
             {
                 return false;
@@ -153,28 +120,29 @@ namespace StrmTool.Common
             AudioMetadataInfo? probed = null;
             if (mediaInfo != null)
             {
-                var composers = NormalizeList(mediaInfo.Composers);
+                var composers = MetadataNormalizer.NormalizeList(mediaInfo.Composers);
                 if (mediaInfo.People != null && mediaInfo.People.Length > 0)
                 {
                     var writers = mediaInfo.People
                         .Where(p => p != null && p.Type == PersonType.Writer && !string.IsNullOrWhiteSpace(p.Name))
                         .Select(p => p.Name);
-                    composers = NormalizeList((composers ?? Enumerable.Empty<string>()).Concat(writers));
+                    composers = MetadataNormalizer.NormalizeList(
+                        (composers ?? Enumerable.Empty<string>()).Concat(writers));
                 }
 
                 int? year = mediaInfo.ProductionYear ?? mediaInfo.PremiereDate?.Year;
-                var providerIds = NormalizeProviderIds(mediaInfo.ProviderIds);
+                var providerIds = MetadataNormalizer.NormalizeProviderIds(mediaInfo.ProviderIds);
 
                 probed = new AudioMetadataInfo
                 {
                     AudioTagsProbed = true,
-                    Title = NormalizeString(mediaInfo.Name),
-                    SortName = NormalizeString(mediaInfo.SortName),
-                    Album = NormalizeString(mediaInfo.Album),
-                    Artists = NormalizeList(mediaInfo.Artists),
-                    AlbumArtists = NormalizeList(mediaInfo.AlbumArtists),
+                    Title = MetadataNormalizer.NormalizeString(mediaInfo.Name),
+                    SortName = MetadataNormalizer.NormalizeString(mediaInfo.SortName),
+                    Album = MetadataNormalizer.NormalizeString(mediaInfo.Album),
+                    Artists = MetadataNormalizer.NormalizeList(mediaInfo.Artists),
+                    AlbumArtists = MetadataNormalizer.NormalizeList(mediaInfo.AlbumArtists),
                     Composers = composers,
-                    Genres = NormalizeList(mediaInfo.Genres),
+                    Genres = MetadataNormalizer.NormalizeList(mediaInfo.Genres),
                     TrackNumber = mediaInfo.IndexNumber > 0 ? mediaInfo.IndexNumber : null,
                     DiscNumber = mediaInfo.ParentIndexNumber > 0 ? mediaInfo.ParentIndexNumber : null,
                     ProductionYear = (year.HasValue && year.Value > 0 && year.Value <= 9999) ? year : null,
@@ -253,7 +221,7 @@ namespace StrmTool.Common
                 return new AudioMetadataInfo();
             }
 
-            var fallback = ResolveFallbackMetadata(audio, libraryManager);
+            var fallback = AudioFallbackMetadataResolver.Resolve(audio, libraryManager);
             bool markProbed = audioTagsProbed || !HasMissingAudioMetadata(audio);
 
             var fileNameWithoutExt = !string.IsNullOrWhiteSpace(audio.Path)
@@ -264,9 +232,9 @@ namespace StrmTool.Common
                 ? audio.Name
                 : fallback.Title;
 
-            var album = NormalizeString(audio.Album) ?? fallback.Album;
-            var artists = NormalizeList(audio.Artists) ?? fallback.Artists;
-            var albumArtists = NormalizeList(audio.AlbumArtists) ?? fallback.AlbumArtists ?? artists;
+            var album = MetadataNormalizer.NormalizeString(audio.Album) ?? fallback.Album;
+            var artists = MetadataNormalizer.NormalizeList(audio.Artists) ?? fallback.Artists;
+            var albumArtists = MetadataNormalizer.NormalizeList(audio.AlbumArtists) ?? fallback.AlbumArtists ?? artists;
             if ((artists == null || artists.Count == 0) && albumArtists != null && albumArtists.Count > 0)
             {
                 artists = new List<string>(albumArtists);
@@ -276,154 +244,18 @@ namespace StrmTool.Common
             {
                 AudioTagsProbed = markProbed ? (bool?)true : null,
                 Title = title,
-                SortName = NormalizeString(audio.SortName),
+                SortName = MetadataNormalizer.NormalizeString(audio.SortName),
                 Album = album,
                 Artists = artists,
                 AlbumArtists = albumArtists,
-                Composers = NormalizeList(audio.Composers?.Select(c => c.Name)),
-                Genres = NormalizeList(audio.Genres),
+                Composers = MetadataNormalizer.NormalizeList(audio.Composers?.Select(c => c.Name)),
+                Genres = MetadataNormalizer.NormalizeList(audio.Genres),
                 TrackNumber = audio.IndexNumber ?? fallback.TrackNumber,
                 DiscNumber = audio.ParentIndexNumber ?? fallback.DiscNumber,
                 ProductionYear = audio.ProductionYear,
                 PremiereDate = audio.PremiereDate,
-                ProviderIds = NormalizeProviderIds(audio.ProviderIds)
+                ProviderIds = MetadataNormalizer.NormalizeProviderIds(audio.ProviderIds)
             };
-        }
-
-        /// <summary>
-        /// 整理要保存的媒体流列表：
-        /// 1. 将 JSON 恢复出的相对路径外挂字幕/歌词还原为当前媒体所在目录的完整路径；
-        /// 2. 保留已存在的有效外挂字幕流；
-        /// 3. 对 Audio 自动扫描并补充同目录同名外挂歌词文件（.lrc / .elrc / .txt）。
-        /// </summary>
-        public static List<MediaStream> PrepareMediaStreamsForSave(
-            BaseItem item,
-            IEnumerable<MediaStream>? incomingStreams)
-        {
-            var result = new List<MediaStream>();
-            var mediaDir = !string.IsNullOrWhiteSpace(item?.Path) ? Path.GetDirectoryName(item.Path) : null;
-
-            var incomingList = (incomingStreams ?? Enumerable.Empty<MediaStream>())
-                .Where(s => s != null)
-                .ToList();
-
-            // 1. 先放入所有非本地外挂流
-            foreach (var stream in incomingList)
-            {
-                if (!IsLocalExternalSubtitle(stream))
-                {
-                    result.Add(stream);
-                }
-            }
-
-            int nextIndex = result.Select(s => s.Index).DefaultIfEmpty(-1).Max() + 1;
-            var seenExternalPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            // 2. 合并已有流与传入流中的本地外挂字幕/歌词流，修正相对路径并过滤已不存在的文件
-            var existingStreams = item?.GetMediaStreams() ?? new List<MediaStream>();
-            var candidateExternals = incomingList.Where(IsLocalExternalSubtitle)
-                .Concat(existingStreams.Where(IsLocalExternalSubtitle));
-
-            foreach (var ext in candidateExternals)
-            {
-                var fullPath = ResolveExternalStreamPath(ext.Path, mediaDir);
-                if (string.IsNullOrWhiteSpace(fullPath) || !File.Exists(fullPath))
-                {
-                    continue;
-                }
-
-                if (seenExternalPaths.Add(fullPath))
-                {
-                    var codec = !string.IsNullOrWhiteSpace(ext.Codec)
-                        ? ext.Codec
-                        : (Path.GetExtension(fullPath) ?? string.Empty).TrimStart('.').ToLowerInvariant();
-
-                    result.Add(new MediaStream
-                    {
-                        Index = nextIndex++,
-                        Type = MediaStreamType.Subtitle,
-                        IsExternal = true,
-                        Path = fullPath,
-                        Protocol = MediaProtocol.File,
-                        Codec = codec,
-                        Language = ext.Language,
-                        Title = ext.Title,
-                        DisplayTitle = ext.DisplayTitle,
-                        IsDefault = ext.IsDefault,
-                        IsForced = ext.IsForced,
-                        IsHearingImpaired = ext.IsHearingImpaired,
-                        SupportsExternalStream = true
-                    });
-                }
-            }
-
-            // 3. 对音乐库 Audio 自动扫描同目录外挂歌词文件（.lrc / .elrc）
-            if (item != null && IsMusicLibraryAudio(item) && !string.IsNullOrWhiteSpace(item.Path))
-            {
-                foreach (var lyricPath in FindLocalLyricFiles(item.Path))
-                {
-                    if (seenExternalPaths.Add(lyricPath))
-                    {
-                        var codec = (Path.GetExtension(lyricPath) ?? string.Empty).TrimStart('.').ToLowerInvariant();
-                        result.Add(new MediaStream
-                        {
-                            Index = nextIndex++,
-                            Type = MediaStreamType.Subtitle,
-                            IsExternal = true,
-                            Path = lyricPath,
-                            Protocol = MediaProtocol.File,
-                            Codec = codec,
-                            SupportsExternalStream = true
-                        });
-                    }
-                }
-            }
-
-            return result;
-        }
-
-        private static bool IsLocalExternalSubtitle(MediaStream? stream)
-        {
-            return stream != null &&
-                   stream.IsExternal &&
-                   stream.Type == MediaStreamType.Subtitle &&
-                   stream.Protocol == MediaProtocol.File &&
-                   !string.IsNullOrWhiteSpace(stream.Path);
-        }
-
-        private static string? ResolveExternalStreamPath(string? streamPath, string? mediaDir)
-        {
-            if (string.IsNullOrWhiteSpace(streamPath))
-            {
-                return null;
-            }
-
-            if (Path.IsPathRooted(streamPath))
-            {
-                if (File.Exists(streamPath))
-                {
-                    return streamPath;
-                }
-
-                // 若原绝对路径因迁移目录失效，尝试在当前媒体同目录下按文件名定位
-                if (!string.IsNullOrWhiteSpace(mediaDir))
-                {
-                    var fallbackCandidate = Path.Combine(mediaDir, Path.GetFileName(streamPath));
-                    if (File.Exists(fallbackCandidate))
-                    {
-                        return fallbackCandidate;
-                    }
-                }
-
-                return streamPath;
-            }
-
-            if (!string.IsNullOrWhiteSpace(mediaDir))
-            {
-                return Path.Combine(mediaDir, Path.GetFileName(streamPath));
-            }
-
-            return null;
         }
 
         private static AudioMetadataInfo MergeWithFallback(
@@ -431,13 +263,13 @@ namespace StrmTool.Common
             AudioMetadataInfo? source,
             ILibraryManager? libraryManager)
         {
-            var fallback = ResolveFallbackMetadata(audio, libraryManager);
+            var fallback = AudioFallbackMetadataResolver.Resolve(audio, libraryManager);
 
-            var title = NormalizeString(source?.Title) ?? fallback.Title;
-            var sortName = NormalizeString(source?.SortName);
-            var album = NormalizeString(source?.Album) ?? fallback.Album;
-            var sourceArtists = NormalizeList(source?.Artists);
-            var sourceAlbumArtists = NormalizeList(source?.AlbumArtists);
+            var title = MetadataNormalizer.NormalizeString(source?.Title) ?? fallback.Title;
+            var sortName = MetadataNormalizer.NormalizeString(source?.SortName);
+            var album = MetadataNormalizer.NormalizeString(source?.Album) ?? fallback.Album;
+            var sourceArtists = MetadataNormalizer.NormalizeList(source?.Artists);
+            var sourceAlbumArtists = MetadataNormalizer.NormalizeList(source?.AlbumArtists);
 
             var albumArtists = (sourceAlbumArtists != null && sourceAlbumArtists.Count > 0)
                 ? sourceAlbumArtists
@@ -460,13 +292,13 @@ namespace StrmTool.Common
                 Album = album,
                 Artists = artists,
                 AlbumArtists = albumArtists,
-                Composers = NormalizeList(source?.Composers),
-                Genres = NormalizeList(source?.Genres),
+                Composers = MetadataNormalizer.NormalizeList(source?.Composers),
+                Genres = MetadataNormalizer.NormalizeList(source?.Genres),
                 TrackNumber = source?.TrackNumber ?? fallback.TrackNumber,
                 DiscNumber = source?.DiscNumber ?? fallback.DiscNumber,
                 ProductionYear = source?.ProductionYear,
                 PremiereDate = source?.PremiereDate,
-                ProviderIds = NormalizeProviderIds(source?.ProviderIds)
+                ProviderIds = MetadataNormalizer.NormalizeProviderIds(source?.ProviderIds)
             };
         }
 
@@ -543,6 +375,7 @@ namespace StrmTool.Common
                 changed = true;
             }
 
+            // Emby 的 MetadataFields 未提供 ProductionYear / PremiereDate 常量，这里保持「只补缺失值」的语义
             if (effective.ProductionYear.HasValue && effective.ProductionYear.Value > 0 && effective.ProductionYear.Value <= 9999)
             {
                 int year = effective.ProductionYear.Value;
@@ -610,333 +443,6 @@ namespace StrmTool.Common
 
             return !string.IsNullOrWhiteSpace(fileNameWithoutExt) &&
                    string.Equals(audio.Name, fileNameWithoutExt, StringComparison.Ordinal);
-        }
-
-        private static AudioMetadataInfo ResolveFallbackMetadata(Audio audio, ILibraryManager? libraryManager)
-        {
-            var result = new AudioMetadataInfo();
-            if (audio == null)
-            {
-                return result;
-            }
-
-            // 1. 从文件名解析音轨号、碟片号、歌手、歌名（如 "03 - 陈佳 - 爱的箴言.strm" 或 "陈佳 - 爱的箴言.strm"）
-            var fileNameWithoutExt = !string.IsNullOrWhiteSpace(audio.Path)
-                ? Path.GetFileNameWithoutExtension(audio.Path)
-                : null;
-            ParseTrackFileName(fileNameWithoutExt, out var parsedDisc, out var parsedTrack, out var parsedArtists, out var parsedTitle);
-
-            result.DiscNumber = parsedDisc;
-            result.TrackNumber = parsedTrack;
-            result.Title = parsedTitle;
-            result.Artists = parsedArtists;
-
-            // 2. 优先使用 Emby 原生根据 MusicFolderStructure (artist_album_track / album_track) 解析的目录结构
-            var libraryOptions = libraryManager != null ? libraryManager.GetLibraryOptions(audio) : null;
-            if (libraryOptions != null)
-            {
-                var albumFolder = audio.GetAlbumFolder(libraryOptions);
-                if (!string.IsNullOrWhiteSpace(albumFolder))
-                {
-                    var folderName = Path.GetFileName(albumFolder)?.Trim();
-                    if (!string.IsNullOrWhiteSpace(folderName))
-                    {
-                        result.Album = folderName;
-                    }
-                }
-
-                var albumArtistFolder = audio.GetAlbumArtistFolder(libraryOptions);
-                if (!string.IsNullOrWhiteSpace(albumArtistFolder))
-                {
-                    var artistFolderName = Path.GetFileName(albumArtistFolder)?.Trim();
-                    if (!string.IsNullOrWhiteSpace(artistFolderName))
-                    {
-                        result.AlbumArtists = new List<string> { artistFolderName };
-                    }
-                }
-            }
-
-            // 3. 若媒体库未配置目录结构或仍缺失，回退按物理目录层级 (专辑艺术家/专辑/[CDx/]歌曲.strm) 解析
-            if ((string.IsNullOrWhiteSpace(result.Album) || result.AlbumArtists == null || result.AlbumArtists.Count == 0 || !result.DiscNumber.HasValue) &&
-                !string.IsNullOrWhiteSpace(audio.Path))
-            {
-                ExtractFolderHierarchyFallback(
-                    audio.Path,
-                    parsedArtists,
-                    libraryOptions,
-                    out var pathAlbumArtist,
-                    out var pathAlbum,
-                    out var pathDiscNumber);
-
-                if (string.IsNullOrWhiteSpace(result.Album) && !string.IsNullOrWhiteSpace(pathAlbum))
-                {
-                    result.Album = pathAlbum;
-                }
-
-                if ((result.AlbumArtists == null || result.AlbumArtists.Count == 0) && !string.IsNullOrWhiteSpace(pathAlbumArtist))
-                {
-                    result.AlbumArtists = new List<string> { pathAlbumArtist };
-                }
-
-                if (!result.DiscNumber.HasValue && pathDiscNumber.HasValue)
-                {
-                    result.DiscNumber = pathDiscNumber;
-                }
-            }
-
-            // 4. Artists 与 AlbumArtists 互为兜底
-            if ((result.Artists == null || result.Artists.Count == 0) && result.AlbumArtists != null && result.AlbumArtists.Count > 0)
-            {
-                result.Artists = new List<string>(result.AlbumArtists);
-            }
-            else if ((result.AlbumArtists == null || result.AlbumArtists.Count == 0) && result.Artists != null && result.Artists.Count > 0)
-            {
-                result.AlbumArtists = new List<string>(result.Artists);
-            }
-
-            return result;
-        }
-
-        private static void ParseTrackFileName(
-            string? fileNameWithoutExt,
-            out int? discNumber,
-            out int? trackNumber,
-            out List<string>? artists,
-            out string? title)
-        {
-            discNumber = null;
-            trackNumber = null;
-            artists = null;
-            title = null;
-
-            if (string.IsNullOrWhiteSpace(fileNameWithoutExt))
-            {
-                return;
-            }
-
-            string working = fileNameWithoutExt.Trim();
-            var match = LeadingTrackRegex.Match(working);
-            if (match.Success)
-            {
-                if (match.Groups["disc"].Success &&
-                    int.TryParse(match.Groups["disc"].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int disc) &&
-                    disc > 0)
-                {
-                    discNumber = disc;
-                }
-
-                if (int.TryParse(match.Groups["track"].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int track) &&
-                    track > 0)
-                {
-                    trackNumber = track;
-                    working = match.Groups["rest"].Value.Trim();
-                }
-            }
-
-            int separatorIndex = working.IndexOf(" - ", StringComparison.Ordinal);
-            if (separatorIndex > 0)
-            {
-                var artistPart = working.Substring(0, separatorIndex).Trim();
-                var titlePart = working.Substring(separatorIndex + 3).Trim();
-                if (!string.IsNullOrWhiteSpace(artistPart) && !string.IsNullOrWhiteSpace(titlePart))
-                {
-                    artists = SplitArtists(artistPart);
-                    title = titlePart;
-                    return;
-                }
-            }
-
-            if (trackNumber.HasValue && !string.IsNullOrWhiteSpace(working))
-            {
-                title = working;
-            }
-        }
-
-        private static void ExtractFolderHierarchyFallback(
-            string strmPath,
-            List<string>? parsedFileArtists,
-            LibraryOptions? libraryOptions,
-            out string? albumArtist,
-            out string? album,
-            out int? discNumber)
-        {
-            albumArtist = null;
-            album = null;
-            discNumber = null;
-
-            try
-            {
-                var dir = Path.GetDirectoryName(strmPath);
-                if (string.IsNullOrWhiteSpace(dir))
-                {
-                    return;
-                }
-
-                var currentDirName = Path.GetFileName(dir);
-                var parentDir = Path.GetDirectoryName(dir);
-
-                var discMatch = !string.IsNullOrWhiteSpace(currentDirName)
-                    ? MultiDiscFolderRegex.Match(currentDirName.Trim())
-                    : Match.Empty;
-                if (discMatch.Success && !string.IsNullOrWhiteSpace(parentDir))
-                {
-                    if (int.TryParse(discMatch.Groups["disc"].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int disc) &&
-                        disc > 0)
-                    {
-                        discNumber = disc;
-                    }
-
-                    dir = parentDir;
-                    currentDirName = Path.GetFileName(dir);
-                    parentDir = Path.GetDirectoryName(dir);
-                }
-
-                var grandParentDirName = !string.IsNullOrWhiteSpace(parentDir)
-                    ? Path.GetFileName(parentDir)
-                    : null;
-
-                if (string.IsNullOrWhiteSpace(currentDirName) || string.IsNullOrWhiteSpace(grandParentDirName))
-                {
-                    return;
-                }
-
-                // 检查祖父目录是否已经是媒体库根路径（若是根路径，则当前目录只是单层目录，不能把根路径当成艺术家）
-                bool isParentLibraryRoot = libraryOptions?.PathInfos != null &&
-                    libraryOptions.PathInfos.Any(p =>
-                        !string.IsNullOrWhiteSpace(p?.Path) &&
-                        string.Equals(
-                            p.Path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                            parentDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                            StringComparison.OrdinalIgnoreCase));
-
-                if (isParentLibraryRoot)
-                {
-                    return;
-                }
-
-                bool matchesFileArtist = parsedFileArtists != null &&
-                    parsedFileArtists.Any(a => string.Equals(a, grandParentDirName.Trim(), StringComparison.OrdinalIgnoreCase));
-
-                if (matchesFileArtist || libraryOptions == null)
-                {
-                    albumArtist = grandParentDirName.Trim();
-                    album = currentDirName.Trim();
-                }
-            }
-            catch
-            {
-                // 忽略路径解析异常
-            }
-        }
-
-        internal static List<string> FindLocalLyricFiles(string? strmPath)
-        {
-            var result = new List<string>();
-            if (string.IsNullOrWhiteSpace(strmPath))
-            {
-                return result;
-            }
-
-            try
-            {
-                var directory = Path.GetDirectoryName(strmPath);
-                var baseName = Path.GetFileNameWithoutExtension(strmPath);
-                if (string.IsNullOrWhiteSpace(directory) || string.IsNullOrWhiteSpace(baseName) || !Directory.Exists(directory))
-                {
-                    return result;
-                }
-
-                foreach (var ext in LyricFileExtensions)
-                {
-                    var candidate = Path.Combine(directory, baseName + ext);
-                    if (File.Exists(candidate))
-                    {
-                        result.Add(candidate);
-                    }
-                }
-            }
-            catch
-            {
-                // 忽略磁盘访问异常
-            }
-
-            return result;
-        }
-
-        private static string? NormalizeString(string? value)
-        {
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                return null;
-            }
-
-            var trimmed = value.Trim();
-            return trimmed.Length > 0 ? trimmed : null;
-        }
-
-        /// <summary>
-        /// 规范化已拆分的字符串列表（仅做 Trim 与去重，不按分隔符二次切分，避免破坏 "AC/DC" 等合法名称）
-        /// </summary>
-        private static List<string>? NormalizeList(IEnumerable<string>? values)
-        {
-            if (values == null)
-            {
-                return null;
-            }
-
-            var result = new List<string>();
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var raw in values)
-            {
-                if (string.IsNullOrWhiteSpace(raw))
-                {
-                    continue;
-                }
-
-                var trimmed = raw.Trim();
-                if (trimmed.Length > 0 && seen.Add(trimmed))
-                {
-                    result.Add(trimmed);
-                }
-            }
-
-            return result.Count > 0 ? result : null;
-        }
-
-        /// <summary>
-        /// 仅用于文件名解析中的歌手部分拆分（如 "歌手A / 歌手B - 歌名"）
-        /// </summary>
-        private static List<string>? SplitArtists(string? raw)
-        {
-            if (string.IsNullOrWhiteSpace(raw))
-            {
-                return null;
-            }
-
-            var parts = raw.Split(ArtistSplitDelimiters, StringSplitOptions.RemoveEmptyEntries);
-            return NormalizeList(parts);
-        }
-
-        private static Dictionary<string, string>? NormalizeProviderIds(IDictionary<string, string>? providerIds)
-        {
-            if (providerIds == null || providerIds.Count == 0)
-            {
-                return null;
-            }
-
-            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var kvp in providerIds)
-            {
-                var key = NormalizeString(kvp.Key);
-                var val = NormalizeString(kvp.Value);
-                if (key != null && val != null)
-                {
-                    result[key] = val;
-                }
-            }
-
-            return result.Count > 0 ? result : null;
         }
     }
 }

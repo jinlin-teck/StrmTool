@@ -1,7 +1,9 @@
 define([], function () {
     "use strict";
 
+    // 必须与 CommonConfiguration.PluginId 保持一致
     var pluginId = "a1b2c3d4-e5f6-7890-abcd-ef1234567891";
+    var submitting = false;
 
     function clamp(value, min, max, fallbackValue) {
         if (isNaN(value)) {
@@ -24,6 +26,14 @@ define([], function () {
     }
 
     function onSubmit(e) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        // form submit 与按钮 click 可能同时触发，这里做重入保护，避免重复保存
+        if (submitting) {
+            return false;
+        }
+
         var form = this;
         var processingDelayMs = parseInt(form.querySelector("#ProcessingDelayMs").value || "0", 10);
         var maxConcurrency = parseInt(form.querySelector("#MaxConcurrency").value || "1", 10);
@@ -34,15 +44,16 @@ define([], function () {
             MaxConcurrency: clamp(maxConcurrency, 1, 10, 1)
         };
 
+        submitting = true;
         Dashboard.showLoadingMsg();
         ApiClient.updatePluginConfiguration(pluginId, config).then(function (result) {
+            submitting = false;
             Dashboard.processPluginConfigurationUpdateResult(result);
         }, function () {
+            submitting = false;
             Dashboard.hideLoadingMsg();
         });
 
-        e.preventDefault();
-        e.stopPropagation();
         return false;
     }
 
