@@ -62,15 +62,49 @@ namespace StrmTool.Common
             {
                 Common.LogHelper.Debug(_logger, $"Restoring media item: {item.Name} (Path: {item.Path})");
 
-                var jsonFilePath = _jsonStore.GetJsonPath(item);
-                var mediaSourceWithChapters = await LoadAndValidateMediaSourceAsync(jsonFilePath, cancellationToken).ConfigureAwait(false);
+                var config = Plugin.GetSafeConfiguration();
+                var customBackupDirectory = config.CustomBackupDirectory;
+                var primary = _jsonStore.GetWriteJsonPath(item, customBackupDirectory);
+                var sidecar = _jsonStore.GetSidecarJsonPath(item);
+                var candidates = MediaInfoJsonStore.PathStringComparer.Equals(primary, sidecar)
+                    ? new[] { primary }
+                    : new[] { primary, sidecar };
 
-                if (mediaSourceWithChapters == null)
-                    return false;
+                foreach (var jsonFilePath in candidates)
+                {
+                    if (!File.Exists(jsonFilePath))
+                    {
+                        continue;
+                    }
 
-                await RestoreMediaDataAsync(item, mediaSourceWithChapters, cancellationToken).ConfigureAwait(false);
-                Common.LogHelper.Info(_logger, $"Restore completed: {item.Name} ← {jsonFilePath}");
-                return true;
+                    MediaSourceWithChapters? mediaSourceWithChapters;
+                    try
+                    {
+                        mediaSourceWithChapters = await LoadAndValidateMediaSourceAsync(jsonFilePath, cancellationToken)
+                            .ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        Common.LogHelper.ErrorException(_logger, $"Error reading backup {jsonFilePath}", ex);
+                        continue;
+                    }
+
+                    if (mediaSourceWithChapters == null)
+                    {
+                        continue;
+                    }
+
+                    await RestoreMediaDataAsync(item, mediaSourceWithChapters, config, cancellationToken).ConfigureAwait(false);
+                    Common.LogHelper.Info(_logger, $"Restore completed: {item.Name} ← {jsonFilePath}");
+                    return true;
+                }
+
+                Common.LogHelper.Warn(_logger, $"No usable JSON backup for {item.Name}");
+                return false;
             }
             catch (OperationCanceledException)
             {
@@ -81,6 +115,40 @@ namespace StrmTool.Common
                 Common.LogHelper.ErrorException(_logger, $"Error restoring media information for {item.Name}", ex);
                 return false;
             }
+        }
+
+        /// <summary>
+        /// 在音乐标签探测判定前检查主备份：若其损坏或不可读，立即尝试同目录备份。
+        /// </summary>
+        internal async Task<bool> TryRestoreFromSidecarIfPrimaryInvalidAsync(
+            BaseItem item, CancellationToken cancellationToken)
+        {
+            var customBackupDirectory = Plugin.GetSafeConfiguration().CustomBackupDirectory;
+            var primary = _jsonStore.GetWriteJsonPath(item, customBackupDirectory);
+            var sidecar = _jsonStore.GetSidecarJsonPath(item);
+            if (MediaInfoJsonStore.PathStringComparer.Equals(primary, sidecar) ||
+                !File.Exists(primary) || !File.Exists(sidecar))
+            {
+                return false;
+            }
+
+            try
+            {
+                if (await LoadAndValidateMediaSourceAsync(primary, cancellationToken).ConfigureAwait(false) != null)
+                {
+                    return false;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Common.LogHelper.ErrorException(_logger, $"Error reading backup {primary}", ex);
+            }
+
+            return await RestoreItemAsync(item, cancellationToken).ConfigureAwait(false);
         }
 
         private async Task<MediaSourceWithChapters?> LoadAndValidateMediaSourceAsync(
@@ -108,7 +176,7 @@ namespace StrmTool.Common
                 return null;
             }
 
-            var invalidReason = GetValidationFailure(readResult.Value);
+            var invalidReason = MediaInfoJsonStore.GetValidationFailure(readResult.Value);
             if (invalidReason != null)
             {
                 await _jsonStore.TryQuarantineAsync(
@@ -121,46 +189,18 @@ namespace StrmTool.Common
             return mediaSourceWithChapters;
         }
 
-        /// <summary>
-        /// 只校验恢复所必需的结构（媒体源与音视频流）。
-        /// Size / RunTimeTicks 等字段在部分远程源上本就可能缺失，不能据此判定备份损坏。
-        /// </summary>
-        private static string? GetValidationFailure(List<MediaSourceWithChapters>? mediaSourcesWithChapters)
-        {
-            if (mediaSourcesWithChapters == null)
-            {
-                return "deserialized value is null";
-            }
-
-            if (mediaSourcesWithChapters.Count == 0)
-            {
-                return "media source list is empty";
-            }
-
-            var first = mediaSourcesWithChapters[0];
-            if (first?.MediaSourceInfo == null)
-            {
-                return "first media source has no MediaSourceInfo";
-            }
-
-            var streams = first.MediaSourceInfo.MediaStreams;
-            if (streams == null ||
-                !streams.Any(stream =>
-                    stream != null &&
-                    (stream.Type == MediaStreamType.Video || stream.Type == MediaStreamType.Audio)))
-            {
-                return "MediaSourceInfo.MediaStreams has no video or audio stream";
-            }
-
-            return null;
-        }
-
         private async Task RestoreMediaDataAsync(
-            BaseItem item, MediaSourceWithChapters mediaSourceWithChapters,
+            BaseItem item,
+            MediaSourceWithChapters mediaSourceWithChapters,
+            PluginConfiguration config,
             CancellationToken cancellationToken)
         {
             RestoreMediaStreams(item, mediaSourceWithChapters, cancellationToken);
-            await RestoreAudioEmbeddedImageAsync(item, mediaSourceWithChapters, cancellationToken).ConfigureAwait(false);
+            if (config.EnableMusicMetadata)
+            {
+                await RestoreAudioEmbeddedImageAsync(
+                    item, mediaSourceWithChapters, config.CustomBackupDirectory, cancellationToken).ConfigureAwait(false);
+            }
             if (mediaSourceWithChapters.MediaSourceInfo != null)
             {
                 MediaInfoHelper.ApplyMediaSourceInfo(
@@ -190,7 +230,10 @@ namespace StrmTool.Common
         }
 
         private async Task RestoreAudioEmbeddedImageAsync(
-            BaseItem item, MediaSourceWithChapters mediaSourceWithChapters, CancellationToken cancellationToken)
+            BaseItem item,
+            MediaSourceWithChapters mediaSourceWithChapters,
+            string? customBackupDirectory,
+            CancellationToken cancellationToken)
         {
             if (!(item is Audio) || string.IsNullOrEmpty(mediaSourceWithChapters.EmbeddedImage))
             {
@@ -205,10 +248,8 @@ namespace StrmTool.Common
                     return;
                 }
 
-                var mediaDirectory = Path.GetDirectoryName(item.Path);
-                var audioImageDir = Path.Combine(
-                    string.IsNullOrWhiteSpace(mediaDirectory) ? Path.GetTempPath() : mediaDirectory,
-                    ".metadata");
+                var audioImageDir = _jsonStore.GetAudioMetadataDirectory(item, customBackupDirectory);
+                var sidecarImageDir = _jsonStore.GetSidecarAudioMetadataDirectory(item);
                 Directory.CreateDirectory(audioImageDir);
 
                 var baseName = GetAudioImageBaseName(item);
@@ -228,7 +269,7 @@ namespace StrmTool.Common
                     gate.Release();
                 }
 
-                BindRestoredPrimaryImageIfNeeded(item, audioImageDir, baseName, imagePath);
+                BindRestoredPrimaryImageIfNeeded(item, audioImageDir, sidecarImageDir, baseName, imagePath);
                 Common.LogHelper.Debug(_logger, $"Restored embedded image for audio file {item.Name}");
             }
             catch (OperationCanceledException)
@@ -252,13 +293,18 @@ namespace StrmTool.Common
         }
 
         private static void BindRestoredPrimaryImageIfNeeded(
-            BaseItem item, string audioImageDir, string baseName, string restoredImagePath)
+            BaseItem item,
+            string audioImageDir,
+            string sidecarImageDir,
+            string baseName,
+            string restoredImagePath)
         {
             var existingPrimary = item.GetImageInfo(ImageType.Primary, 0);
             bool shouldBind = existingPrimary == null ||
                               string.IsNullOrWhiteSpace(existingPrimary.Path) ||
                               !File.Exists(existingPrimary.Path) ||
-                              IsManagedAudioMetadataImage(existingPrimary.Path, audioImageDir, baseName);
+                              IsManagedAudioMetadataImage(existingPrimary.Path, audioImageDir, baseName) ||
+                              IsManagedAudioMetadataImage(existingPrimary.Path, sidecarImageDir, baseName);
             if (!shouldBind)
             {
                 return;

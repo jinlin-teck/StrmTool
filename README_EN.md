@@ -4,7 +4,7 @@
 
 **StrmTool** is a `.strm` media enhancement plugin built for Emby media server. By pre-extracting technical media information (video/audio codecs, resolution, subtitles, images, music tags, external lyrics, etc.) and exporting it to local JSON backups, it dramatically improves library presentation and playback startup speed for cloud and remote media streams. Lost media info can also be restored from backups in one click.
 
-> **Current Version**: `v2.7.3` (Targets **Emby 4.8+**; tested on 4.8.11.0 and 4.9.1.80, please test other versions yourself. If you are using Jellyfin, please go to [StrmTool-Jellyfin](https://github.com/jinlin-teck/StrmTool-Jellyfin) — the Jellyfin version now lives in a separate repository, built on .NET 10 / Jellyfin 12, and is no longer updated here.)
+> **Current Version**: `v2.8.0` (Targets **Emby 4.8+**; tested on 4.8.11.0 and 4.9.1.80, please test other versions yourself. If you are using Jellyfin, please go to [StrmTool-Jellyfin](https://github.com/jinlin-teck/StrmTool-Jellyfin) — the Jellyfin version now lives in a separate repository, built on .NET 10 / Jellyfin 12, and is no longer updated here.)
 >
 > **Recommended Companion**: Need to batch-generate `.strm` files from OpenList / Alist cloud drives? Check out my companion project [openlist-strm](https://github.com/jinlin-teck/openlist-strm) — a lightweight `.strm` generator service with WebUI that pairs seamlessly with this plugin.
 
@@ -53,11 +53,21 @@ Go to **Emby Dashboard → Plugins**, find `StrmTool`, and click the plugin name
 | :--- | :---: | :--- |
 | **Enable Auto Extract** | On | Whether to automatically extract media info in the background when new `.strm` files are added to the library. |
 | **Processing Delay (ms)** | `2000` ms | Milliseconds to wait before each real remote probe, used to smooth request pacing and avoid cloud drive / WebDAV rate limiting (restoring from local JSON backup is a local operation and is not delayed). |
+| **Random Delay Jitter (ms)** | `0` ms | Adds a random `[0, jitter]` wait on top of the base delay to break fixed request intervals and further reduce rate-limit risk (max `30000`). |
 | **Max Concurrency** | `3` | Maximum number of files processed simultaneously; shared by background probing and batch tasks. |
+| **Library Scope** | All libraries | When disabled, only the checked libraries are processed. Applies to both new-item events and all scheduled tasks; useful for excluding rate-limited cloud drives. |
+| **Process Trailers & Extra Videos** | On | Whether to process `Trailer`, `MusicVideo` and extras; disable to handle main features and audio only. |
+| **Extract Video Chapters** | On | Whether to read and store chapters during remote video probes (existing chapters are never overwritten). |
+| **Music Tag & Artist/Album Enrichment** | On | Extracts embedded audio tags for music-library STRMs and resolves album, artist and cover art from the folder structure. |
+| **Auto-Merge Sidecar Lyrics** | On | Scans and merges matching `.lrc` / `.elrc` lyric streams located next to each `.strm`. |
+| **Custom Centralized Backup Directory** | Empty | Empty means sidecar mode. When set to an absolute path, `-mediainfo.json` and music covers are stored under an encoded mirror of the original folder structure — ideal for read-only media mounts. Existing sidecar backups are still read as a fallback. |
+| **Enable Plugin Debug Logging** | Off | Emits `StrmTool [Debug]` trace lines into `embyserver.txt` without enabling Emby's global debug mode. |
 
 Additional notes:
 
 - All settings take effect immediately after saving — no Emby restart required.
+- After enabling the centralized backup directory, run the "Export STRM Media Info" task once to migrate existing sidecar backups (files are copied, never deleted).
+- The library scope is persisted as library GUIDs. If a library was removed and re-created, re-confirm the selection on the configuration page (the status panel shows the currently matched STRM count).
 - Scheduled task execution times can be adjusted as needed on the Emby "Scheduled Tasks" page.
 
 ---
@@ -69,8 +79,8 @@ Go to **Emby Dashboard → Scheduled Tasks** to use the following three tasks:
 | Task Name | Default Trigger | Use Case & Behavior |
 | :--- | :---: | :--- |
 | **Extract Strm Media Info** | Daily at 3 AM | **Primary task**. Scans the whole library for `.strm` items missing media info: restores from the sidecar JSON backup first (pure local); probes remotely only when no backup exists, then auto-exports a backup. Runs on a timer as a safety net. |
-| **Export STRM Media Info** | Manual | **Initialize backups for existing libraries**. Batch-exports items that already have media info in the Emby database but no local `-mediainfo.json` backup yet; existing backups are skipped. |
-| **Restore STRM Media Info** | Manual | **Restore after migration/rebuild**. Scans the whole library and batch-restores missing audio/video stream info from sidecar JSON backups (pure local operation, zero remote network requests). |
+| **Export STRM Media Info** | Manual | **Initialize backups for existing libraries**. Batch-exports items that already have media info in the Emby database but no `-mediainfo.json` backup yet (written next to the media file or into the custom centralized directory); existing backups are skipped. When a centralized directory is configured, existing sidecar backups are migrated as-is. |
+| **Restore STRM Media Info** | Manual | **Restore after migration/rebuild**. Scans the whole library and batch-restores missing audio/video stream info from JSON backups (centralized directory first, falling back to sidecar files) — a pure local operation with zero remote network requests. |
 
 ---
 

@@ -120,6 +120,7 @@ namespace StrmTool.Common
 
             // 3. 对音乐库 Audio 自动扫描同目录外挂歌词文件（.lrc / .elrc）
             if (item != null &&
+                Plugin.GetSafeConfiguration().EnableExternalLyrics &&
                 AudioMetadataHelper.IsMusicLibraryAudio(item, libraryManager) &&
                 !string.IsNullOrWhiteSpace(item.Path))
             {

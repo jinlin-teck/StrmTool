@@ -38,10 +38,12 @@ namespace StrmTool.Tasks
 
             // 包含三类条目：本地缺少 JSON 备份、缺少完整媒体信息、未锁定的音乐库曲目尚未探测过内嵌标签。
             // 优先将具备本地 JSON 的条目排在队列前端，使本地恢复先行快速完成而不被慢速远程探测阻塞。
+            var enableMusicMetadata = Plugin.GetSafeConfiguration().EnableMusicMetadata;
             var strmItems = MediaInfoHelper.GetAllStrmFiles(LibraryManager)
                 .Where(i => !MediaInfoHelper.HasJsonFile(i, mediaInfoManager) ||
                             !MediaInfoHelper.HasCompleteMediaInfo(i, mediaInfoManager, LibraryManager) ||
-                            (AudioMetadataHelper.IsMusicLibraryAudio(i, LibraryManager) &&
+                            (enableMusicMetadata &&
+                             AudioMetadataHelper.IsMusicLibraryAudio(i, LibraryManager) &&
                              !i.IsLocked &&
                              !mediaInfoManager.HasProbedAudioTagsInJson(i)))
                 .OrderByDescending(i => MediaInfoHelper.HasJsonFile(i, mediaInfoManager))
@@ -75,8 +77,17 @@ namespace StrmTool.Tasks
                 ProcessResult outcome;
                 try
                 {
-                    var delayMs = Plugin.GetSafeConfiguration().ProcessingDelayMs;
-                    outcome = await processor.ProcessItemAsync(item, delayMs, cancellationToken).ConfigureAwait(false);
+                    var currentConfig = Plugin.GetSafeConfiguration();
+                    if (!MediaInfoHelper.IsItemInConfiguredLibraries(item, LibraryManager, currentConfig) ||
+                        (!currentConfig.IncludeExtraVideos && MediaInfoHelper.IsExtraVideoItem(item)))
+                    {
+                        outcome = ProcessResult.Skipped;
+                    }
+                    else
+                    {
+                        outcome = await processor.ProcessItemAsync(
+                            item, currentConfig.ProcessingDelayMs, cancellationToken).ConfigureAwait(false);
+                    }
                 }
                 catch (OperationCanceledException)
                 {

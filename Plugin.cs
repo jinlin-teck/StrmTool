@@ -21,30 +21,31 @@ namespace StrmTool
     {
         private const string PluginDisplayName = "StrmTool";
         private static readonly object _lock = new object();
+        private static readonly PluginConfiguration DefaultFallbackConfiguration = new PluginConfiguration();
         public static Plugin? Instance { get; private set; }
+
+        /// <summary>
+        /// 供静态辅助类输出的插件日志器（插件未初始化时为 null）
+        /// </summary>
+        internal static ILogger? Logger => Instance?._logger;
 
         public static PluginConfiguration GetSafeConfiguration()
         {
             try
             {
                 var config = Instance?.Configuration;
-                if (config == null)
-                {
-                    return new PluginConfiguration();
-                }
-
-                return config;
+                return config ?? DefaultFallbackConfiguration;
             }
             catch (Exception ex)
             {
-                // 插件初始化期间可能无法访问 Configuration，返回默认值
+                // 插件初始化期间可能无法访问 Configuration，返回默认值（直接调用 ILogger.Debug 防止与 LogHelper 形成递归）
                 var logger = Instance?._logger;
                 if (logger != null)
                 {
-                    Common.LogHelper.Debug(logger, $"Failed to read plugin configuration, using defaults: {ex.Message}");
+                    logger.Debug($"StrmTool - Failed to read plugin configuration, using defaults: {ex.Message}");
                 }
 
-                return new PluginConfiguration();
+                return DefaultFallbackConfiguration;
             }
         }
 
@@ -91,6 +92,7 @@ namespace StrmTool
                 _eventHandler = new ItemAddedEventHandler(
                     logger, libraryManager, mediaInfoManager, strmFileProcessor, _cancellationTokenSource.Token);
                 libraryManager.ItemAdded += _eventHandler.OnItemAdded;
+                libraryManager.ItemRemoved += OnLibraryItemRemoved;
 
                 Common.LogHelper.Info(logger, "Item added event handler registered at plugin level");
                 LogConfiguration(logger);
@@ -99,6 +101,29 @@ namespace StrmTool
             {
                 Common.LogHelper.Error(logger, $"Error registering event handlers at plugin level: {ex.Message}");
             }
+        }
+
+        private void OnLibraryItemRemoved(object sender, ItemChangeEventArgs e)
+        {
+            if (e?.Item != null && MediaInfoHelper.IsStrmFile(e.Item.Path))
+            {
+                LibraryScopeFilter.InvalidateScopedCountCache();
+            }
+        }
+
+        public override void UpdateConfiguration(BasePluginConfiguration configuration)
+        {
+            base.UpdateConfiguration(configuration);
+            LibraryScopeFilter.InvalidateScopedCountCache(force: true);
+            BackupPathResolver.ClearCache();
+        }
+
+        internal (int QueuedCount, int LocalQueueCount, int ProbeQueueCount) GetEventQueueMetrics()
+        {
+            var handler = _eventHandler;
+            return handler != null
+                ? (handler.QueuedCount, handler.LocalQueueCount, handler.ProbeQueueCount)
+                : (0, 0, 0);
         }
 
         /// <summary>
@@ -113,7 +138,15 @@ namespace StrmTool
                 {
                     await Task.Delay(5000, token).ConfigureAwait(false);
                     var config = GetSafeConfiguration();
-                    Common.LogHelper.Info(logger, $"Configuration loaded: EnableAutoExtract={config.EnableAutoExtract}, ProcessingDelayMs={config.ProcessingDelayMs}, MaxConcurrency={config.MaxConcurrency}");
+                    Common.LogHelper.Info(
+                        logger,
+                        $"Configuration loaded: EnableAutoExtract={config.EnableAutoExtract}, ProcessingDelayMs={config.ProcessingDelayMs}, " +
+                        $"ProcessingDelayJitterMs={config.ProcessingDelayJitterMs}, MaxConcurrency={config.MaxConcurrency}, " +
+                        $"EnableAllLibraries={config.EnableAllLibraries}, EnabledLibraries={config.EnabledLibraryIds.Length}, " +
+                        $"ExtractVideoChapters={config.ExtractVideoChapters}, IncludeExtraVideos={config.IncludeExtraVideos}, " +
+                        $"EnableMusicMetadata={config.EnableMusicMetadata}, EnableExternalLyrics={config.EnableExternalLyrics}, " +
+                        $"CustomBackupDirectory={(string.IsNullOrEmpty(config.CustomBackupDirectory) ? "<default>" : config.CustomBackupDirectory)}, " +
+                        $"EnableDebugLogging={config.EnableDebugLogging}");
                 }
                 catch (OperationCanceledException)
                 {
@@ -133,9 +166,14 @@ namespace StrmTool
         {
             try
             {
-                if (_libraryManager != null && _eventHandler != null)
+                if (_libraryManager != null)
                 {
-                    _libraryManager.ItemAdded -= _eventHandler.OnItemAdded;
+                    if (_eventHandler != null)
+                    {
+                        _libraryManager.ItemAdded -= _eventHandler.OnItemAdded;
+                    }
+
+                    _libraryManager.ItemRemoved -= OnLibraryItemRemoved;
                 }
 
                 if (!_cancellationTokenSource.IsCancellationRequested)
@@ -228,10 +266,19 @@ namespace StrmTool
 
     public class PluginConfiguration : BasePluginConfiguration
     {
-        // 默认启用自动提取，处理延迟为2000ms，最大并发数为3，这里是插件默认配置，用户可以在插件设置界面修改这些值
+        // 默认配置与旧版本行为保持完全向后兼容，用户可在插件设置界面按需调整
         private bool _enableAutoExtract = true;
         private int _processingDelayMs = CommonConfiguration.StandardProcessingDelayMs;
+        private int _processingDelayJitterMs = CommonConfiguration.DefaultProcessingDelayJitterMs;
         private int _maxConcurrency = CommonConfiguration.MaxConcurrency;
+        private bool _enableAllLibraries = true;
+        private string[] _enabledLibraryIds = Array.Empty<string>();
+        private bool _extractVideoChapters = true;
+        private bool _includeExtraVideos = true;
+        private bool _enableMusicMetadata = true;
+        private bool _enableExternalLyrics = true;
+        private string _customBackupDirectory = string.Empty;
+        private bool _enableDebugLogging;
 
         public bool EnableAutoExtract
         {
@@ -242,13 +289,96 @@ namespace StrmTool
         public int ProcessingDelayMs
         {
             get => _processingDelayMs;
-            set => _processingDelayMs = Math.Clamp(value, 0, 20000);
+            set => _processingDelayMs = Math.Clamp(value, 0, CommonConfiguration.MaxProcessingDelayMs);
+        }
+
+        public int ProcessingDelayJitterMs
+        {
+            get => _processingDelayJitterMs;
+            set => _processingDelayJitterMs = Math.Clamp(value, 0, CommonConfiguration.MaxProcessingDelayJitterMs);
         }
 
         public int MaxConcurrency
         {
             get => _maxConcurrency;
-            set => _maxConcurrency = Math.Clamp(value, 1, 10);
+            set => _maxConcurrency = Math.Clamp(
+                value,
+                CommonConfiguration.MinConcurrency,
+                CommonConfiguration.MaxConcurrencyLimit);
+        }
+
+        public bool EnableAllLibraries
+        {
+            get => _enableAllLibraries;
+            set => _enableAllLibraries = value;
+        }
+
+        public string[] EnabledLibraryIds
+        {
+            get => _enabledLibraryIds;
+            set => _enabledLibraryIds = NormalizeStringArray(value);
+        }
+
+        public bool ExtractVideoChapters
+        {
+            get => _extractVideoChapters;
+            set => _extractVideoChapters = value;
+        }
+
+        public bool IncludeExtraVideos
+        {
+            get => _includeExtraVideos;
+            set => _includeExtraVideos = value;
+        }
+
+        public bool EnableMusicMetadata
+        {
+            get => _enableMusicMetadata;
+            set => _enableMusicMetadata = value;
+        }
+
+        public bool EnableExternalLyrics
+        {
+            get => _enableExternalLyrics;
+            set => _enableExternalLyrics = value;
+        }
+
+        public string CustomBackupDirectory
+        {
+            get => _customBackupDirectory;
+            set => _customBackupDirectory = (value ?? string.Empty).Trim();
+        }
+
+        public bool EnableDebugLogging
+        {
+            get => _enableDebugLogging;
+            set => _enableDebugLogging = value;
+        }
+
+        private static string[] NormalizeStringArray(string[]? values)
+        {
+            if (values == null || values.Length == 0)
+            {
+                return Array.Empty<string>();
+            }
+
+            var result = new List<string>(values.Length);
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var value in values)
+            {
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    continue;
+                }
+
+                var trimmed = value.Trim();
+                if (seen.Add(trimmed))
+                {
+                    result.Add(trimmed);
+                }
+            }
+
+            return result.Count == 0 ? Array.Empty<string>() : result.ToArray();
         }
     }
 }

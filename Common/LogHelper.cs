@@ -15,7 +15,14 @@ namespace StrmTool.Common
         /// </summary>
         public static void Debug(ILogger logger, string message)
         {
-            logger.Debug($"{LogPrefix} - {message}");
+            if (Plugin.GetSafeConfiguration().EnableDebugLogging)
+            {
+                logger.Info($"{LogPrefix} [Debug] - {message}");
+            }
+            else
+            {
+                logger.Debug($"{LogPrefix} - {message}");
+            }
         }
 
         /// <summary>

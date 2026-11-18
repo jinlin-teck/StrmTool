@@ -6,36 +6,1048 @@
         #StrmToolConfigPage .viewHeaderTitle {
             margin-left: 1.75em;
         }
+
+        #StrmToolConfigPage .strm-shell {
+            width: 100%;
+            max-width: 960px;
+            margin: 0;
+            padding: 8px 0 36px;
+            box-sizing: border-box;
+        }
+
+        #StrmToolConfigPage #StrmToolConfigForm {
+            width: 100% !important;
+            max-width: none !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+
+        #StrmToolConfigPage .strm-shell *,
+        #StrmToolConfigPage .strm-shell *::before,
+        #StrmToolConfigPage .strm-shell *::after {
+            box-sizing: border-box;
+        }
+
+        /* Brand Hero Banner */
+        #StrmToolConfigPage .strm-hero {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 20px;
+            padding: 22px 24px;
+            margin-bottom: 18px;
+            border-radius: 14px;
+            background: radial-gradient(circle at 18% 45%, #1c3129 0%, #13221c 48%, #0e1915 100%);
+            border: 1px solid rgba(0, 245, 155, 0.24);
+            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+            color: #ffffff;
+            overflow: hidden;
+        }
+
+        #StrmToolConfigPage .strm-hero::after {
+            content: "";
+            position: absolute;
+            right: -60px;
+            top: -70px;
+            width: 240px;
+            height: 240px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(0, 245, 212, 0.14) 0%, rgba(0, 245, 155, 0) 70%);
+            pointer-events: none;
+        }
+
+        #StrmToolConfigPage .strm-hero-brand {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            min-width: 0;
+            position: relative;
+            z-index: 1;
+        }
+
+        #StrmToolConfigPage .strm-hero-logo {
+            width: 56px;
+            height: 56px;
+            flex-shrink: 0;
+            filter: drop-shadow(0 4px 12px rgba(0, 245, 155, 0.2));
+        }
+
+        #StrmToolConfigPage .strm-hero-title-row {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 4px;
+        }
+
+        #StrmToolConfigPage .strm-hero-title {
+            margin: 0;
+            font-size: 1.5em;
+            font-weight: 800;
+            letter-spacing: 0.3px;
+            color: #ffffff;
+        }
+
+        #StrmToolConfigPage .strm-hero-title span {
+            color: #00f59b;
+        }
+
+        #StrmToolConfigPage .strm-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 2px 9px;
+            border-radius: 999px;
+            font-size: 0.78em;
+            font-weight: 600;
+            line-height: 1.5;
+            white-space: nowrap;
+        }
+
+        #StrmToolConfigPage .strm-badge-version {
+            background: rgba(255, 255, 255, 0.12);
+            color: #d8f8eb;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+        }
+
+        #StrmToolConfigPage .strm-badge-status {
+            background: rgba(0, 245, 155, 0.16);
+            color: #67ffbf;
+            border: 1px solid rgba(0, 245, 155, 0.3);
+        }
+
+        #StrmToolConfigPage .strm-badge-status.is-paused {
+            background: rgba(245, 158, 11, 0.18);
+            color: #fcd34d;
+            border-color: rgba(245, 158, 11, 0.34);
+        }
+
+        #StrmToolConfigPage .strm-status-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        #StrmToolConfigPage .strm-hero-subtitle {
+            margin: 0;
+            font-size: 0.9em;
+            color: rgba(220, 242, 233, 0.8);
+            line-height: 1.45;
+        }
+
+        #StrmToolConfigPage .strm-hero-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
+            position: relative;
+            z-index: 1;
+        }
+
+        #StrmToolConfigPage .strm-lang-btn {
+            appearance: none;
+            -webkit-appearance: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 7px 13px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: rgba(255, 255, 255, 0.1);
+            color: #ffffff;
+            font-size: 0.86em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.18s ease, border-color 0.18s ease;
+        }
+
+        #StrmToolConfigPage .strm-lang-btn:hover {
+            background: rgba(0, 245, 155, 0.18);
+            border-color: rgba(0, 245, 155, 0.45);
+        }
+
+        /* Section Cards */
+        #StrmToolConfigPage .strm-card {
+            background: rgba(128, 128, 128, 0.08);
+            border: 1px solid rgba(128, 128, 128, 0.18);
+            border-radius: 12px;
+            padding: 20px 22px;
+            margin-bottom: 18px;
+        }
+
+        #StrmToolConfigPage .strm-card-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        #StrmToolConfigPage .strm-card-title {
+            margin: 0 0 4px;
+            font-size: 1.12em;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        #StrmToolConfigPage .strm-card-desc {
+            margin: 0;
+            font-size: 0.88em;
+            opacity: 0.74;
+            line-height: 1.45;
+        }
+
+        #StrmToolConfigPage .strm-icon-btn {
+            appearance: none;
+            -webkit-appearance: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 6px 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(128, 128, 128, 0.25);
+            background: rgba(128, 128, 128, 0.1);
+            color: inherit;
+            font-family: inherit;
+            font-size: 0.84em;
+            font-weight: 600;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: border-color 0.18s ease, background 0.18s ease;
+        }
+
+        #StrmToolConfigPage .strm-icon-btn:hover {
+            border-color: rgba(0, 200, 133, 0.55);
+            background: rgba(0, 200, 133, 0.12);
+        }
+
+        #StrmToolConfigPage .strm-icon-btn:disabled {
+            opacity: 0.55;
+            cursor: default;
+        }
+
+        /* Metrics Grid */
+        #StrmToolConfigPage .strm-metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        #StrmToolConfigPage .strm-metric-tile {
+            padding: 13px 14px;
+            border-radius: 10px;
+            background: rgba(128, 128, 128, 0.08);
+            border: 1px solid rgba(128, 128, 128, 0.14);
+            min-width: 0;
+        }
+
+        #StrmToolConfigPage .strm-metric-label {
+            font-size: 0.8em;
+            opacity: 0.72;
+            margin-bottom: 6px;
+        }
+
+        #StrmToolConfigPage .strm-metric-value {
+            font-size: 1.32em;
+            font-weight: 700;
+            line-height: 1.2;
+            color: #00c885;
+            overflow-wrap: anywhere;
+        }
+
+        #StrmToolConfigPage .strm-metric-sub {
+            margin-top: 4px;
+            font-size: 0.78em;
+            opacity: 0.68;
+            overflow-wrap: anywhere;
+        }
+
+        /* Scheduled Tasks Grid */
+        #StrmToolConfigPage .strm-tasks-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        #StrmToolConfigPage .strm-task-card {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 14px;
+            border-radius: 10px;
+            background: rgba(128, 128, 128, 0.07);
+            border: 1px solid rgba(128, 128, 128, 0.16);
+            min-width: 0;
+        }
+
+        #StrmToolConfigPage .strm-task-card.is-running {
+            border-color: rgba(0, 200, 133, 0.45);
+            background: rgba(0, 200, 133, 0.06);
+        }
+
+        #StrmToolConfigPage .strm-task-top {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
+        #StrmToolConfigPage .strm-task-name {
+            font-weight: 700;
+            font-size: 0.96em;
+            line-height: 1.35;
+            overflow-wrap: anywhere;
+        }
+
+        #StrmToolConfigPage .strm-task-pill {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-size: 0.74em;
+            font-weight: 600;
+            white-space: nowrap;
+            background: rgba(128, 128, 128, 0.16);
+        }
+
+        #StrmToolConfigPage .strm-task-pill.is-running {
+            background: rgba(0, 200, 133, 0.18);
+            color: #00c885;
+        }
+
+        #StrmToolConfigPage .strm-task-pill.is-failed {
+            background: rgba(239, 68, 68, 0.18);
+            color: #ef4444;
+        }
+
+        #StrmToolConfigPage .strm-task-pill.is-warn {
+            background: rgba(245, 158, 11, 0.18);
+            color: #f59e0b;
+        }
+
+        #StrmToolConfigPage .strm-task-meta {
+            font-size: 0.8em;
+            opacity: 0.72;
+            line-height: 1.4;
+            overflow-wrap: anywhere;
+        }
+
+        #StrmToolConfigPage .strm-progress-track {
+            width: 100%;
+            height: 6px;
+            border-radius: 999px;
+            background: rgba(128, 128, 128, 0.22);
+            overflow: hidden;
+        }
+
+        #StrmToolConfigPage .strm-progress-fill {
+            height: 100%;
+            width: 0%;
+            border-radius: 999px;
+            background: linear-gradient(90deg, #00c885, #00d4c8);
+            transition: width 0.25s ease;
+        }
+
+        #StrmToolConfigPage .strm-task-btn {
+            appearance: none;
+            -webkit-appearance: none;
+            width: 100%;
+            padding: 7px 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(0, 200, 133, 0.36);
+            background: rgba(0, 200, 133, 0.12);
+            color: #00c885;
+            font-family: inherit;
+            font-size: 0.86em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.18s ease, border-color 0.18s ease;
+        }
+
+        #StrmToolConfigPage .strm-task-btn:hover {
+            background: rgba(0, 200, 133, 0.22);
+            border-color: rgba(0, 200, 133, 0.6);
+        }
+
+        #StrmToolConfigPage .strm-task-btn.is-stop {
+            border-color: rgba(239, 68, 68, 0.42);
+            background: rgba(239, 68, 68, 0.12);
+            color: #ef4444;
+        }
+
+        #StrmToolConfigPage .strm-task-btn.is-stop:hover {
+            background: rgba(239, 68, 68, 0.22);
+        }
+
+        #StrmToolConfigPage .strm-task-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Preset Selector */
+        #StrmToolConfigPage .strm-section-sublabel {
+            font-size: 0.88em;
+            font-weight: 600;
+            opacity: 0.84;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        #StrmToolConfigPage .strm-preset-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+            margin-bottom: 18px;
+        }
+
+        #StrmToolConfigPage .strm-preset-card {
+            appearance: none;
+            -webkit-appearance: none;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 4px;
+            padding: 12px 14px;
+            border-radius: 10px;
+            border: 1px solid rgba(128, 128, 128, 0.22);
+            background: rgba(128, 128, 128, 0.07);
+            color: inherit;
+            font-family: inherit;
+            text-align: left;
+            cursor: pointer;
+            transition: border-color 0.18s ease, background 0.18s ease, transform 0.15s ease;
+            min-width: 0;
+        }
+
+        #StrmToolConfigPage .strm-preset-card:hover {
+            border-color: rgba(0, 200, 133, 0.45);
+            background: rgba(0, 200, 133, 0.08);
+        }
+
+        #StrmToolConfigPage .strm-preset-card.is-active {
+            border-color: #00c885;
+            background: rgba(0, 200, 133, 0.14);
+            box-shadow: 0 0 0 1px rgba(0, 200, 133, 0.22);
+        }
+
+        #StrmToolConfigPage .strm-preset-title {
+            font-size: 0.94em;
+            font-weight: 700;
+        }
+
+        #StrmToolConfigPage .strm-preset-params {
+            font-size: 0.8em;
+            font-weight: 600;
+            color: #00c885;
+        }
+
+        #StrmToolConfigPage .strm-preset-desc {
+            font-size: 0.78em;
+            opacity: 0.7;
+            line-height: 1.35;
+        }
+
+        /* Form Layouts */
+        #StrmToolConfigPage .strm-toggle-box {
+            padding: 12px 14px;
+            border-radius: 10px;
+            background: rgba(128, 128, 128, 0.06);
+            border: 1px solid rgba(128, 128, 128, 0.14);
+            margin-bottom: 14px;
+        }
+
+        #StrmToolConfigPage .strm-toggle-box .checkboxContainer {
+            margin-bottom: 0;
+        }
+
+        #StrmToolConfigPage .strm-toggle-box .fieldDescription {
+            margin-top: 4px;
+            padding-left: 2em;
+            font-size: 0.85em;
+            opacity: 0.74;
+        }
+
+        #StrmToolConfigPage .strm-grid-3 {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        #StrmToolConfigPage .strm-grid-3 .inputContainer,
+        #StrmToolConfigPage .strm-dir-field .inputContainer {
+            margin-bottom: 6px;
+            min-width: 0;
+        }
+
+        #StrmToolConfigPage .strm-preview-banner {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            margin-top: 8px;
+            border-radius: 9px;
+            background: rgba(6, 182, 212, 0.1);
+            border: 1px solid rgba(6, 182, 212, 0.26);
+            font-size: 0.86em;
+            line-height: 1.45;
+        }
+
+        #StrmToolConfigPage .strm-notice-warn {
+            padding: 10px 14px;
+            margin-bottom: 12px;
+            border-radius: 9px;
+            background: rgba(245, 158, 11, 0.12);
+            border: 1px solid rgba(245, 158, 11, 0.32);
+            color: #f59e0b;
+            font-size: 0.86em;
+            line-height: 1.45;
+        }
+
+        #StrmToolConfigPage .strm-notice-error {
+            padding: 10px 14px;
+            margin-top: 8px;
+            border-radius: 9px;
+            background: rgba(239, 68, 68, 0.12);
+            border: 1px solid rgba(239, 68, 68, 0.32);
+            color: #ef4444;
+            font-size: 0.86em;
+            line-height: 1.45;
+        }
+
+        #StrmToolConfigPage .strm-notice-info {
+            padding: 10px 14px;
+            margin-top: 8px;
+            border-radius: 9px;
+            background: rgba(0, 200, 133, 0.1);
+            border: 1px solid rgba(0, 200, 133, 0.24);
+            font-size: 0.85em;
+            line-height: 1.45;
+        }
+
+        /* Library Scope Selector */
+        #StrmToolConfigPage .strm-lib-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+
+        #StrmToolConfigPage .strm-lib-toolbar-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        #StrmToolConfigPage .strm-lib-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        #StrmToolConfigPage .strm-lib-card {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            padding: 12px 14px;
+            border-radius: 10px;
+            border: 1px solid rgba(128, 128, 128, 0.2);
+            background: rgba(128, 128, 128, 0.06);
+            cursor: pointer;
+            transition: border-color 0.18s ease, background 0.18s ease;
+            min-width: 0;
+        }
+
+        #StrmToolConfigPage .strm-lib-card:hover {
+            border-color: rgba(0, 200, 133, 0.45);
+        }
+
+        #StrmToolConfigPage .strm-lib-card.is-selected {
+            border-color: #00c885;
+            background: rgba(0, 200, 133, 0.1);
+        }
+
+        #StrmToolConfigPage .strm-lib-card-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
+        #StrmToolConfigPage .strm-lib-card-head .checkboxContainer {
+            margin: 0;
+            min-width: 0;
+            flex: 1;
+        }
+
+        #StrmToolConfigPage .strm-lib-type-pill {
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-size: 0.74em;
+            font-weight: 600;
+            background: rgba(128, 128, 128, 0.16);
+            white-space: nowrap;
+        }
+
+        #StrmToolConfigPage .strm-lib-path {
+            font-size: 0.78em;
+            opacity: 0.68;
+            padding-left: 2.1em;
+            overflow-wrap: anywhere;
+            line-height: 1.35;
+        }
+
+        /* Feature Matrix */
+        #StrmToolConfigPage .strm-feature-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        #StrmToolConfigPage .strm-feature-grid .strm-toggle-box {
+            margin-bottom: 0;
+        }
+
+        /* Custom Backup Directory */
+        #StrmToolConfigPage .strm-backup-box {
+            padding: 16px;
+            border-radius: 10px;
+            background: rgba(128, 128, 128, 0.06);
+            border: 1px solid rgba(128, 128, 128, 0.16);
+            margin-bottom: 14px;
+        }
+
+        #StrmToolConfigPage .strm-dir-row {
+            display: flex;
+            align-items: flex-end;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        #StrmToolConfigPage .strm-dir-field {
+            flex: 1 1 320px;
+            min-width: 0;
+        }
+
+        #StrmToolConfigPage .strm-dir-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding-bottom: 6px;
+        }
+
+        /* Action Bar */
+        #StrmToolConfigPage .strm-action-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+            padding: 14px 18px;
+            border-radius: 12px;
+            background: rgba(128, 128, 128, 0.1);
+            border: 1px solid rgba(128, 128, 128, 0.2);
+        }
+
+        #StrmToolConfigPage .strm-dirty-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            font-size: 0.88em;
+            font-weight: 600;
+            opacity: 0.8;
+        }
+
+        #StrmToolConfigPage .strm-dirty-badge.is-dirty {
+            color: #f59e0b;
+            opacity: 1;
+        }
+
+        #StrmToolConfigPage .strm-action-buttons {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        #StrmToolConfigPage .strm-btn-primary {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            min-width: 148px;
+            margin: 0 !important;
+        }
+
+        #StrmToolConfigPage .strm-hidden {
+            display: none !important;
+        }
+
+        @media (max-width: 720px) {
+            #StrmToolConfigPage .strm-shell {
+                padding: 4px 0 28px;
+            }
+
+            #StrmToolConfigPage .strm-hero {
+                flex-direction: column;
+                align-items: flex-start;
+                padding: 18px 16px;
+            }
+
+            #StrmToolConfigPage .strm-card {
+                padding: 16px;
+            }
+
+            #StrmToolConfigPage .strm-metrics-grid,
+            #StrmToolConfigPage .strm-tasks-grid,
+            #StrmToolConfigPage .strm-preset-grid,
+            #StrmToolConfigPage .strm-grid-3,
+            #StrmToolConfigPage .strm-lib-grid,
+            #StrmToolConfigPage .strm-feature-grid {
+                grid-template-columns: 1fr;
+            }
+
+            #StrmToolConfigPage .strm-action-bar {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            #StrmToolConfigPage .strm-action-buttons {
+                width: 100%;
+                justify-content: stretch;
+            }
+
+            #StrmToolConfigPage .strm-action-buttons > * {
+                flex: 1 1 auto;
+            }
+        }
     </style>
+
     <div data-role="content">
         <div class="content-primary">
-            <form id="StrmToolConfigForm">
-                <div class="inputContainer">
-                    <label class="checkboxContainer">
-                        <input id="EnableAutoExtract" type="checkbox" is="emby-checkbox" checked />
-                        <span>启用自动提取</span>
-                    </label>
-                    <div class="fieldDescription">新 STRM 文件入库时自动提取媒体信息。</div>
+            <div class="strm-shell">
+                <!-- 1. Brand Hero Banner -->
+                <div class="strm-hero">
+                    <div class="strm-hero-brand">
+                        <svg class="strm-hero-logo" viewBox="0 0 220 220" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                            <defs>
+                                <linearGradient id="strmHeroGreen" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <stop offset="0%" stop-color="#00F59B" />
+                                    <stop offset="100%" stop-color="#00A865" />
+                                </linearGradient>
+                                <linearGradient id="strmHeroCyan" x1="0%" y1="0%" x2="100%" y2="100%">
+                                    <stop offset="0%" stop-color="#00F5D4" />
+                                    <stop offset="100%" stop-color="#00B4D8" />
+                                </linearGradient>
+                            </defs>
+                            <circle cx="110" cy="110" r="100" fill="#0D1814" stroke="#FFFFFF" stroke-opacity="0.16" stroke-width="2.5" />
+                            <circle cx="110" cy="110" r="84" fill="none" stroke="#FFFFFF" stroke-opacity="0.09" stroke-width="1.5" stroke-dasharray="26 8 44 8" />
+                            <circle cx="110" cy="110" r="68" fill="none" stroke="#FFFFFF" stroke-opacity="0.11" stroke-width="1.5" stroke-dasharray="18 8 36 6" />
+                            <path d="M 44 76 A 75 75 0 0 1 88 182" fill="none" stroke="url(#strmHeroGreen)" stroke-width="6" stroke-linecap="round" />
+                            <circle cx="44" cy="76" r="4.5" fill="#00F59B" />
+                            <path d="M 176 144 A 75 75 0 0 1 132 38" fill="none" stroke="url(#strmHeroCyan)" stroke-width="6" stroke-linecap="round" />
+                            <circle cx="176" cy="144" r="4.5" fill="#00F5D4" />
+                            <circle cx="110" cy="110" r="40" fill="url(#strmHeroGreen)" stroke="#70FFD0" stroke-opacity="0.5" stroke-width="2" />
+                            <path d="M 93 92 L 111 110 L 93 128" fill="none" stroke="#FFFFFF" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round" />
+                            <path d="M 112 92 L 130 110 L 112 128" fill="none" stroke="#FFFFFF" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                        <div>
+                            <div class="strm-hero-title-row">
+                                <h1 class="strm-hero-title">Strm<span>Tool</span></h1>
+                                <span id="StrmToolVersionBadge" class="strm-badge strm-badge-version strm-hidden"></span>
+                                <span id="StrmToolAutoStatusBadge" class="strm-badge strm-badge-status">
+                                    <span class="strm-status-dot"></span>
+                                    <span data-i18n="statusAutoOn">自动提取运行中</span>
+                                </span>
+                            </div>
+                            <p class="strm-hero-subtitle" data-i18n="heroSubtitle">
+                                STRM 媒体信息预提取、JSON 本地备份恢复、音乐标签补全与外挂歌词增强工具。
+                            </p>
+                        </div>
+                    </div>
+                    <div class="strm-hero-actions">
+                        <button id="BtnToggleLanguage" type="button" class="strm-lang-btn">
+                            <span id="LanguageToggleLabel">English</span>
+                        </button>
+                    </div>
                 </div>
 
-                <div class="inputContainer">
-                    <label for="ProcessingDelayMs">处理延迟（毫秒）</label>
-                    <input id="ProcessingDelayMs" type="number" is="emby-input" min="0" max="20000" step="100" value="2000" required />
-                    <div class="fieldDescription">每个文件处理之间的等待时间，范围 0-20000。</div>
+                <!-- 2. Runtime Overview & Scheduled Tasks -->
+                <div class="strm-card">
+                    <div class="strm-card-header">
+                        <div>
+                            <h2 class="strm-card-title" data-i18n="overviewTitle">运行状态与计划任务</h2>
+                            <p class="strm-card-desc" data-i18n="overviewDesc">实时查看库内 STRM 处理队列、当前并发负载，并可在此直接启动或停止维护任务。</p>
+                        </div>
+                        <button id="BtnRefreshOverview" type="button" class="strm-icon-btn" data-i18n="btnRefresh">刷新状态</button>
+                    </div>
+
+                    <div class="strm-metrics-grid">
+                        <div class="strm-metric-tile">
+                            <div class="strm-metric-label" data-i18n="metricScopedStrm">生效范围 STRM</div>
+                            <div id="MetricScopedStrmCount" class="strm-metric-value">--</div>
+                            <div id="MetricScopedStrmSub" class="strm-metric-sub" data-i18n="metricScopedSub">当前过滤规则匹配数</div>
+                        </div>
+                        <div class="strm-metric-tile">
+                            <div class="strm-metric-label" data-i18n="metricQueue">事件队列排队</div>
+                            <div id="MetricQueueCount" class="strm-metric-value">--</div>
+                            <div id="MetricQueueSub" class="strm-metric-sub">--</div>
+                        </div>
+                        <div class="strm-metric-tile">
+                            <div class="strm-metric-label" data-i18n="metricProbes">活跃探测 / 并发上限</div>
+                            <div id="MetricConcurrency" class="strm-metric-value">--</div>
+                            <div id="MetricConcurrencySub" class="strm-metric-sub">--</div>
+                        </div>
+                        <div class="strm-metric-tile">
+                            <div class="strm-metric-label" data-i18n="metricBackupMode">备份存储模式</div>
+                            <div id="MetricBackupMode" class="strm-metric-value" style="font-size: 1.02em; padding-top: 4px;">--</div>
+                            <div id="MetricBackupModeSub" class="strm-metric-sub">--</div>
+                        </div>
+                    </div>
+
+                    <div id="StrmTasksGrid" class="strm-tasks-grid">
+                        <div class="strm-task-card" data-task-key="StrmToolTask">
+                            <div>
+                                <div class="strm-task-top">
+                                    <div class="strm-task-name" data-task-title data-i18n="taskExtractName">提取 Strm 媒体信息</div>
+                                    <span class="strm-task-pill" data-task-state>--</span>
+                                </div>
+                                <div class="strm-task-meta" data-task-last style="margin-top: 8px;">--</div>
+                            </div>
+                            <div class="strm-progress-track strm-hidden" data-task-progress-wrap>
+                                <div class="strm-progress-fill" data-task-progress-bar></div>
+                            </div>
+                            <button type="button" class="strm-task-btn" data-task-action disabled>--</button>
+                        </div>
+
+                        <div class="strm-task-card" data-task-key="StrmToolExportTask">
+                            <div>
+                                <div class="strm-task-top">
+                                    <div class="strm-task-name" data-task-title data-i18n="taskExportName">导出 STRM 媒体信息</div>
+                                    <span class="strm-task-pill" data-task-state>--</span>
+                                </div>
+                                <div class="strm-task-meta" data-task-last style="margin-top: 8px;">--</div>
+                            </div>
+                            <div class="strm-progress-track strm-hidden" data-task-progress-wrap>
+                                <div class="strm-progress-fill" data-task-progress-bar></div>
+                            </div>
+                            <button type="button" class="strm-task-btn" data-task-action disabled>--</button>
+                        </div>
+
+                        <div class="strm-task-card" data-task-key="StrmToolRestoreTask">
+                            <div>
+                                <div class="strm-task-top">
+                                    <div class="strm-task-name" data-task-title data-i18n="taskRestoreName">恢复 STRM 媒体信息</div>
+                                    <span class="strm-task-pill" data-task-state>--</span>
+                                </div>
+                                <div class="strm-task-meta" data-task-last style="margin-top: 8px;">--</div>
+                            </div>
+                            <div class="strm-progress-track strm-hidden" data-task-progress-wrap>
+                                <div class="strm-progress-fill" data-task-progress-bar></div>
+                            </div>
+                            <button type="button" class="strm-task-btn" data-task-action disabled>--</button>
+                        </div>
+                    </div>
                 </div>
 
-                <div class="inputContainer">
-                    <label for="MaxConcurrency">最大并发数</label>
-                    <input id="MaxConcurrency" type="number" is="emby-input" min="1" max="10" step="1" value="3" required />
-                    <div class="fieldDescription">同时处理任务数，范围 1-10。</div>
-                </div>
+                <form id="StrmToolConfigForm">
+                    <!-- 3. Core Extraction & Anti-Throttle Settings -->
+                    <div class="strm-card">
+                        <div class="strm-card-header">
+                            <div>
+                                <h2 class="strm-card-title" data-i18n="coreTitle">核心提取与防风控节流</h2>
+                                <p class="strm-card-desc" data-i18n="coreDesc">控制新入库自动处理与远程探测节奏；命中本地 JSON 备份时始终零延迟恢复。</p>
+                            </div>
+                        </div>
 
-                <div>
-                    <button is="emby-button" type="submit" class="raised button-submit block">
-                        <span>保存</span>
-                    </button>
-                </div>
-            </form>
+                        <div class="strm-toggle-box">
+                            <label class="checkboxContainer">
+                                <input id="EnableAutoExtract" type="checkbox" is="emby-checkbox" checked />
+                                <span data-i18n="enableAutoExtractLabel">启用新入库自动提取</span>
+                            </label>
+                            <div class="fieldDescription" data-i18n="enableAutoExtractDesc">新 STRM 文件入库时自动在后台触发媒体信息恢复或远程探测。</div>
+                        </div>
+
+                        <div class="strm-section-sublabel">
+                            <span data-i18n="presetTitle">场景预设档位（点击快速填充延迟与并发）</span>
+                            <span id="PresetActiveLabel" class="strm-task-pill">--</span>
+                        </div>
+
+                        <div class="strm-preset-grid">
+                            <button type="button" class="strm-preset-card" data-preset="strict">
+                                <span class="strm-preset-title" data-i18n="presetStrictTitle">🛡️ 严格防风控</span>
+                                <span class="strm-preset-params" data-i18n="presetStrictParams">1 并发 · 5000ms + 2000ms 抖动</span>
+                                <span class="strm-preset-desc" data-i18n="presetStrictDesc">适合 115/阿里云盘等限流敏感网盘</span>
+                            </button>
+                            <button type="button" class="strm-preset-card" data-preset="balanced">
+                                <span class="strm-preset-title" data-i18n="presetBalancedTitle">⚖️ 均衡推荐</span>
+                                <span class="strm-preset-params" data-i18n="presetBalancedParams">3 并发 · 2000ms + 500ms 抖动</span>
+                                <span class="strm-preset-desc" data-i18n="presetBalancedDesc">兼顾起播准备速度与网盘稳定性</span>
+                            </button>
+                            <button type="button" class="strm-preset-card" data-preset="fast">
+                                <span class="strm-preset-title" data-i18n="presetFastTitle">⚡ 局域网高速</span>
+                                <span class="strm-preset-params" data-i18n="presetFastParams">6 并发 · 200ms + 0ms 抖动</span>
+                                <span class="strm-preset-desc" data-i18n="presetFastDesc">适合自建 WebDAV / NAS 内网源</span>
+                            </button>
+                        </div>
+
+                        <div class="strm-grid-3">
+                            <div class="inputContainer">
+                                <label for="ProcessingDelayMs" data-i18n="delayLabel">基础处理延迟（毫秒）</label>
+                                <input id="ProcessingDelayMs" type="number" is="emby-input" min="0" max="60000" step="1" value="2000" required />
+                                <div class="fieldDescription" data-i18n="delayDesc">每次远程探测前的固定等待，范围 0 - 60000。</div>
+                            </div>
+
+                            <div class="inputContainer">
+                                <label for="ProcessingDelayJitterMs" data-i18n="jitterLabel">随机延迟抖动（毫秒）</label>
+                                <input id="ProcessingDelayJitterMs" type="number" is="emby-input" min="0" max="30000" step="1" value="0" required />
+                                <div class="fieldDescription" data-i18n="jitterDesc">额外叠加 [0, 抖动] 随机毫秒打散请求规律，范围 0 - 30000。</div>
+                            </div>
+
+                            <div class="inputContainer">
+                                <label for="MaxConcurrency" data-i18n="concurrencyLabel">最大并发数</label>
+                                <input id="MaxConcurrency" type="number" is="emby-input" min="1" max="10" step="1" value="3" required />
+                                <div class="fieldDescription" data-i18n="concurrencyDesc">同时处理的任务与远程探测上限，范围 1 - 10。</div>
+                            </div>
+                        </div>
+
+                        <div id="DelayPreviewBanner" class="strm-preview-banner">
+                            <span id="DelayPreviewText">--</span>
+                        </div>
+                    </div>
+
+                    <!-- 4. Library Scope Filter -->
+                    <div class="strm-card">
+                        <div class="strm-card-header">
+                            <div>
+                                <h2 class="strm-card-title" data-i18n="libraryScopeTitle">媒体库生效范围</h2>
+                                <p class="strm-card-desc" data-i18n="libraryScopeDesc">同时作用于新入库事件与所有计划任务，可用于排除高风控或无需探测的特定媒体库。</p>
+                            </div>
+                        </div>
+
+                        <div class="strm-toggle-box">
+                            <label class="checkboxContainer">
+                                <input id="EnableAllLibraries" type="checkbox" is="emby-checkbox" checked />
+                                <span data-i18n="enableAllLibrariesLabel">对所有媒体库生效</span>
+                            </label>
+                            <div class="fieldDescription" data-i18n="enableAllLibrariesDesc">关闭后仅处理下方勾选的媒体库中的 STRM 文件。</div>
+                        </div>
+
+                        <div id="LibraryScopeContainer" class="strm-hidden">
+                            <div class="strm-lib-toolbar">
+                                <span id="SelectedLibrarySummary" class="strm-card-desc" style="opacity: 0.9; font-weight: 600;">--</span>
+                                <div class="strm-lib-toolbar-actions">
+                                    <button id="BtnSelectAllLibraries" type="button" class="strm-icon-btn" data-i18n="btnSelectAll">全选</button>
+                                    <button id="BtnClearAllLibraries" type="button" class="strm-icon-btn" data-i18n="btnClearAll">清空</button>
+                                </div>
+                            </div>
+
+                            <div id="NoLibrarySelectedWarning" class="strm-notice-warn strm-hidden" data-i18n="noLibraryWarning">
+                                当前未勾选任何媒体库：入库自动提取与计划任务将暂时不会处理任何 STRM 文件。
+                            </div>
+
+                            <div id="LibraryListContainer" class="strm-lib-grid"></div>
+                        </div>
+                    </div>
+
+                    <!-- 5. Feature Toggles, Backup Storage & Diagnostics -->
+                    <div class="strm-card">
+                        <div class="strm-card-header">
+                            <div>
+                                <h2 class="strm-card-title" data-i18n="featuresStorageTitle">媒体特性、备份存储与排障</h2>
+                                <p class="strm-card-desc" data-i18n="featuresStorageDesc">按需开关特定媒体类型的处理行为、配置集中备份目录或开启独立调试日志。</p>
+                            </div>
+                        </div>
+
+                        <div class="strm-feature-grid">
+                            <div class="strm-toggle-box">
+                                <label class="checkboxContainer">
+                                    <input id="ExtractVideoChapters" type="checkbox" is="emby-checkbox" checked />
+                                    <span data-i18n="extractChaptersLabel">提取视频章节信息</span>
+                                </label>
+                                <div class="fieldDescription" data-i18n="extractChaptersDesc">远程探测视频时同时读取并保存章节信息（库内已有章节时不覆盖）。</div>
+                            </div>
+
+                            <div class="strm-toggle-box">
+                                <label class="checkboxContainer">
+                                    <input id="IncludeExtraVideos" type="checkbox" is="emby-checkbox" checked />
+                                    <span data-i18n="includeExtrasLabel">处理预告片与附加视频</span>
+                                </label>
+                                <div class="fieldDescription" data-i18n="includeExtrasDesc">包含 Trailer、MusicVideo 及 extras 等附加片段；关闭后仅处理正片与音频。</div>
+                            </div>
+
+                            <div class="strm-toggle-box">
+                                <label class="checkboxContainer">
+                                    <input id="EnableMusicMetadata" type="checkbox" is="emby-checkbox" checked />
+                                    <span data-i18n="enableMusicMetaLabel">音乐标签与专辑歌手补全</span>
+                                </label>
+                                <div class="fieldDescription" data-i18n="enableMusicMetaDesc">为音乐库 STRM 提取内嵌音频标签并结合目录结构补全专辑、歌手与封面。</div>
+                            </div>
+
+                            <div class="strm-toggle-box">
+                                <label class="checkboxContainer">
+                                    <input id="EnableExternalLyrics" type="checkbox" is="emby-checkbox" checked />
+                                    <span data-i18n="enableLyricsLabel">自动关联同目录外挂歌词</span>
+                                </label>
+                                <div class="fieldDescription" data-i18n="enableLyricsDesc">自动扫描并合并 STRM 同目录下的同名 .lrc / .elrc 歌词流。</div>
+                            </div>
+                        </div>
+
+                        <div class="strm-backup-box">
+                            <div class="strm-dir-row">
+                                <div class="strm-dir-field">
+                                    <div class="inputContainer">
+                                        <label for="CustomBackupDirectory" data-i18n="customBackupDirLabel">自定义集中备份目录（留空则保存在 .strm 同目录）</label>
+                                        <input id="CustomBackupDirectory" type="text" is="emby-input" placeholder="/config/strmtool-backups" />
+                                        <div class="fieldDescription" data-i18n="customBackupDirDesc">
+                                            适合媒体盘只读挂载场景。启用后按原路径编码存放 -mediainfo.json 与音乐 .metadata 封面；读取时仍自动兼容同目录历史旧备份。
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="strm-dir-actions">
+                                    <button id="BtnBrowseBackupDir" type="button" class="strm-icon-btn" data-i18n="btnBrowse">浏览目录</button>
+                                    <button id="BtnClearBackupDir" type="button" class="strm-icon-btn" data-i18n="btnClearPath">清空</button>
+                                </div>
+                            </div>
+                            <div id="BackupDirNotice" class="strm-notice-info"></div>
+                        </div>
+
+                        <div class="strm-toggle-box" style="margin-bottom: 0;">
+                            <label class="checkboxContainer">
+                                <input id="EnableDebugLogging" type="checkbox" is="emby-checkbox" />
+                                <span data-i18n="enableDebugLogLabel">启用插件独立调试日志</span>
+                            </label>
+                            <div class="fieldDescription" data-i18n="enableDebugLogDesc">开启后无需打开 Emby 全局调试日志，即可在 embyserver.txt 中输出 StrmTool [Debug] 详细排障信息。</div>
+                        </div>
+                    </div>
+
+                    <!-- Bottom Action Bar -->
+                    <div class="strm-action-bar">
+                        <div id="UnsavedChangesBadge" class="strm-dirty-badge">
+                            <span id="UnsavedChangesText" data-i18n="statusSynced">所有更改已保存</span>
+                        </div>
+                        <div class="strm-action-buttons">
+                            <button id="BtnResetDefaults" type="button" class="strm-icon-btn" style="padding: 9px 15px;" data-i18n="btnResetDefaults">
+                                恢复默认设置
+                            </button>
+                            <button is="emby-button" type="submit" class="raised button-submit strm-btn-primary">
+                                <span data-i18n="btnSave">保存设置</span>
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
 </div>

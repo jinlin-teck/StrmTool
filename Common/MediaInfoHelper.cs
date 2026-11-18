@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -167,7 +168,7 @@ namespace StrmTool.Common
                 }
             }
 
-            if (item is Audio audio)
+            if (item is Audio audio && Plugin.GetSafeConfiguration().EnableMusicMetadata)
             {
                 if (mediaSourceInfo is MediaInfo probedMediaInfo)
                 {
@@ -205,22 +206,108 @@ namespace StrmTool.Common
         }
 
         /// <summary>
-        /// 获取库中所有的STRM文件。
-        /// 除 Movie/Episode/Video/Audio 外还包含 Trailer 与 MusicVideo：
-        /// Emby 会把无法识别的附加片段（如误判的多段视频、extras 目录）归为 Trailer，
-        /// 入库事件会为它们生成 JSON，批量任务也必须覆盖，否则备份丢失后无法自愈，也无法批量恢复。
+        /// 判断条目是否为附加视频（Trailer / MusicVideo / 带 ExtraType 的视频）
+        /// </summary>
+        public static bool IsExtraVideoItem(BaseItem? item)
+        {
+            return LibraryScopeFilter.IsExtraVideoItem(item);
+        }
+
+        /// <summary>
+        /// 判断媒体项是否位于当前插件配置允许处理的媒体库范围内
+        /// </summary>
+        public static bool IsItemInConfiguredLibraries(
+            BaseItem? item,
+            ILibraryManager? libraryManager,
+            PluginConfiguration? config = null)
+        {
+            return LibraryScopeFilter.IsItemInConfiguredLibraries(item, libraryManager, config);
+        }
+
+        /// <summary>
+        /// 获取当前配置范围下的 STRM 数量（带 15 秒短 TTL 缓存，避免前端轮询反复全表物化）。
+        /// </summary>
+        public static int GetCachedScopedStrmCount(ILibraryManager libraryManager, PluginConfiguration? config = null)
+        {
+            if (libraryManager == null)
+            {
+                return 0;
+            }
+
+            var cfg = config ?? Plugin.GetSafeConfiguration();
+            return LibraryScopeFilter.GetOrAddScopedCount(cfg, () => GetAllStrmFiles(libraryManager, cfg).Count);
+        }
+
+        /// <summary>
+        /// 获取库中当前配置允许处理的所有 STRM 文件（按媒体库范围与附加视频开关过滤）。
         /// </summary>
         public static List<BaseItem> GetAllStrmFiles(ILibraryManager libraryManager)
         {
+            return GetAllStrmFiles(libraryManager, null);
+        }
+
+        /// <summary>
+        /// 获取库中指定配置允许处理的所有 STRM 文件（按媒体库范围与附加视频开关过滤）。
+        /// </summary>
+        public static List<BaseItem> GetAllStrmFiles(ILibraryManager libraryManager, PluginConfiguration? config)
+        {
+            if (libraryManager == null)
+            {
+                return new List<BaseItem>();
+            }
+
+            var cfg = config ?? Plugin.GetSafeConfiguration();
+            if (!cfg.EnableAllLibraries &&
+                (cfg.EnabledLibraryIds == null || cfg.EnabledLibraryIds.Length == 0))
+            {
+                return new List<BaseItem>();
+            }
+
+            var includeItemTypes = cfg.IncludeExtraVideos
+                ? new[] { "Movie", "Episode", "Video", "Audio", "Trailer", "MusicVideo" }
+                : new[] { "Movie", "Episode", "Video", "Audio" };
+
             var query = new InternalItemsQuery
             {
                 HasPath = true,
                 Recursive = true,
-                IncludeItemTypes = new[] { "Movie", "Episode", "Video", "Audio", "Trailer", "MusicVideo" }
+                IncludeItemTypes = includeItemTypes
             };
 
-            return libraryManager.GetItemList(query)
-                .Where(i => IsStrmFile(i.Path))
+            bool filterInMemoryByLibrary = false;
+            if (!cfg.EnableAllLibraries)
+            {
+                LibraryScopeFilter.TryResolveEnabledLibraryAncestorIds(
+                    libraryManager,
+                    cfg,
+                    out var ancestorIds,
+                    out var allResolvedToAncestors);
+
+                if (allResolvedToAncestors && ancestorIds.Length == 0)
+                {
+                    return new List<BaseItem>();
+                }
+
+                if (allResolvedToAncestors && ancestorIds.Length > 0)
+                {
+                    query.AncestorIds = ancestorIds;
+                }
+
+                filterInMemoryByLibrary = !allResolvedToAncestors;
+            }
+
+            var items = libraryManager.GetItemList(query);
+            if (!filterInMemoryByLibrary)
+            {
+                return items
+                    .Where(i => IsStrmFile(i.Path) &&
+                                (cfg.IncludeExtraVideos || !LibraryScopeFilter.IsExtraVideoItem(i)))
+                    .ToList();
+            }
+
+            var matcher = LibraryScopeFilter.CreateMatcher(libraryManager, cfg);
+            return items
+                .Where(i => IsStrmFile(i.Path) && matcher.IsItemAllowed(i))
                 .ToList();
         }
 
@@ -234,19 +321,6 @@ namespace StrmTool.Common
             var allStrmFiles = GetAllStrmFiles(libraryManager);
             return allStrmFiles
                 .Where(item => ShouldRestoreFromJson(item, backupInspector, libraryManager))
-                .ToList();
-        }
-
-        /// <summary>
-        /// 获取包含完整媒体信息的STRM文件
-        /// </summary>
-        public static List<BaseItem> GetStrmFilesWithCompleteMediaInfo(
-            ILibraryManager libraryManager,
-            IMediaInfoBackupInspector? backupInspector = null)
-        {
-            var allStrmFiles = GetAllStrmFiles(libraryManager);
-            return allStrmFiles
-                .Where(item => HasCompleteMediaInfo(item, backupInspector, libraryManager))
                 .ToList();
         }
 

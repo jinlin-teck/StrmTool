@@ -15,6 +15,7 @@ namespace StrmTool.Common
         private static readonly object Sync = new object();
         private static SemaphoreSlim _limiter;
         private static int _capacity;
+        private static int _activeCount;
 
         static ProcessingConcurrencyLimiter()
         {
@@ -28,6 +29,11 @@ namespace StrmTool.Common
         public static int MaxConcurrency => GetConfiguredMaxConcurrency();
 
         /// <summary>
+        /// 当前正在执行远程探测（含延迟等待）的全局活跃并发数（覆盖入库事件与计划任务）
+        /// </summary>
+        public static int ActiveCount => Math.Max(0, Volatile.Read(ref _activeCount));
+
+        /// <summary>
         /// 获取一个并发槽。调用方必须在 finally 中把返回的信号量传回 <see cref="Release"/>，
         /// 这样配置变更导致信号量实例被替换时仍能正确释放到原实例。
         /// </summary>
@@ -35,11 +41,19 @@ namespace StrmTool.Common
         {
             var limiter = GetCurrentLimiter();
             await limiter.WaitAsync(cancellationToken).ConfigureAwait(false);
+            Interlocked.Increment(ref _activeCount);
             return limiter;
         }
 
         public static void Release(SemaphoreSlim limiter)
         {
+            if (limiter == null)
+            {
+                // 防御性返回：释放失败不应在 finally 中掩盖调用方的原始异常
+                return;
+            }
+
+            Interlocked.Decrement(ref _activeCount);
             limiter.Release();
         }
 
@@ -61,7 +75,10 @@ namespace StrmTool.Common
 
         private static int GetConfiguredMaxConcurrency()
         {
-            return Math.Clamp(Plugin.GetSafeConfiguration().MaxConcurrency, 1, 10);
+            return Math.Clamp(
+                Plugin.GetSafeConfiguration().MaxConcurrency,
+                CommonConfiguration.MinConcurrency,
+                CommonConfiguration.MaxConcurrencyLimit);
         }
 
         private static SemaphoreSlim CreateLimiter(int capacity)

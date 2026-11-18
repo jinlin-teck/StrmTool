@@ -3,11 +3,11 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Serialization;
 
@@ -53,20 +53,33 @@ namespace StrmTool.Common
         private const int MaxCacheEntries = 32768;
         private const int EvictBatchSize = MaxCacheEntries / 4;
         private const int PathLockStripes = 64;
-
-        private static readonly StringComparer PathComparer = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
-            ? StringComparer.OrdinalIgnoreCase
-            : StringComparer.Ordinal;
+        private const int WriteLockStripes = 256;
 
         private static readonly ConcurrentDictionary<string, JsonAudioTagCacheEntry> AudioTagCache =
-            new ConcurrentDictionary<string, JsonAudioTagCacheEntry>(PathComparer);
+            new ConcurrentDictionary<string, JsonAudioTagCacheEntry>(BackupPathResolver.PathComparer);
+
+        /// <summary>
+        /// 结构校验结果缓存：按 (修改时间, 长度) 失效，避免完整性检查反复反序列化大文件
+        /// </summary>
+        private sealed class DocumentValidityCacheEntry
+        {
+            public long LastWriteTicks { get; set; }
+            public long Length { get; set; }
+            public bool Valid { get; set; }
+        }
+
+        private const int MaxDocumentValidityEntries = 8192;
+
+        private static readonly ConcurrentDictionary<string, DocumentValidityCacheEntry> DocumentValidityCache =
+            new ConcurrentDictionary<string, DocumentValidityCacheEntry>(BackupPathResolver.PathComparer);
 
         private static readonly object CacheEvictLock = new object();
         private static int _approxCacheCount;
 
-        private static readonly SemaphoreSlim[] PathLocks = CreatePathLocks();
+        private static readonly SemaphoreSlim[] PathLocks = CreateLockStripes(PathLockStripes);
+        private static readonly SemaphoreSlim[] WriteCoordinationLocks = CreateLockStripes(WriteLockStripes);
 
-        internal static StringComparer PathStringComparer => PathComparer;
+        internal static StringComparer PathStringComparer => BackupPathResolver.PathComparer;
 
         internal static SemaphoreSlim GetPathLockForPath(string path)
         {
@@ -74,35 +87,20 @@ namespace StrmTool.Common
         }
 
         /// <summary>
+        /// 协调同一写入路径的迁移与导出；须先取得此锁，再取得存储层路径锁。
+        /// </summary>
+        internal static SemaphoreSlim GetWriteCoordinationLock(string path)
+        {
+            int hash = BackupPathResolver.PathComparer.GetHashCode(path) & int.MaxValue;
+            return WriteCoordinationLocks[hash % WriteCoordinationLocks.Length];
+        }
+
+        /// <summary>
         /// 去除路径末尾的目录分隔符，但保留文件系统根路径自身的分隔符（如 Unix "/" 或 Windows "C:\"）
         /// </summary>
         internal static string TrimEndingDirectorySeparatorPreservingRoot(string path)
         {
-            if (string.IsNullOrEmpty(path))
-            {
-                return path;
-            }
-
-            var root = Path.GetPathRoot(path);
-            if (!string.IsNullOrEmpty(root) &&
-                path.Length <= root.Length &&
-                string.Equals(path, root, StringComparison.OrdinalIgnoreCase))
-            {
-                return path;
-            }
-
-            var trimmed = path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            if (trimmed.Length == 0)
-            {
-                return Path.DirectorySeparatorChar.ToString();
-            }
-
-            if (!string.IsNullOrEmpty(root) && trimmed.Length < root.Length)
-            {
-                return root;
-            }
-
-            return trimmed;
+            return BackupPathResolver.TrimEndingDirectorySeparatorPreservingRoot(path);
         }
 
         private readonly ILogger _logger;
@@ -120,35 +118,83 @@ namespace StrmTool.Common
         public static void ClearCache()
         {
             AudioTagCache.Clear();
+            DocumentValidityCache.Clear();
             Interlocked.Exchange(ref _approxCacheCount, 0);
+            BackupPathResolver.ClearCache();
         }
 
         /// <summary>
-        /// 获取媒体信息JSON文件路径，直接保存在strm文件所在目录
+        /// 校验备份文档结构是否可用于恢复（必须包含媒体源及至少一条音/视频流）。
         /// </summary>
-        public string GetJsonPath(BaseItem item)
+        internal static string? GetValidationFailure(List<MediaSourceWithChapters>? mediaSourcesWithChapters)
         {
-            if (item == null)
+            if (mediaSourcesWithChapters == null)
             {
-                throw new ArgumentNullException(nameof(item));
+                return "deserialized value is null";
             }
 
-            var mediaDirectory = Path.GetDirectoryName(item.Path);
-            if (string.IsNullOrEmpty(mediaDirectory))
+            if (mediaSourcesWithChapters.Count == 0)
             {
-                string safeName = MakeSafeFilename(item.Name);
-                var tempPath = Path.Combine(Path.GetTempPath(), "StrmTool");
-                var suffix = item.InternalId > 0 ? $"_{item.InternalId}" : string.Empty;
-                return Path.Combine(tempPath, $"{safeName}{suffix}{CommonConfiguration.MediaInfoFileExtension}");
+                return "media source list is empty";
             }
 
-            var mediaFileName = Path.GetFileNameWithoutExtension(item.Path);
-            if (string.IsNullOrEmpty(mediaFileName))
+            var first = mediaSourcesWithChapters[0];
+            if (first?.MediaSourceInfo == null)
             {
-                mediaFileName = MakeSafeFilename(item.Name);
+                return "first media source has no MediaSourceInfo";
             }
 
-            return Path.Combine(mediaDirectory, $"{mediaFileName}{CommonConfiguration.MediaInfoFileExtension}");
+            var streams = first.MediaSourceInfo.MediaStreams;
+            if (streams == null ||
+                !streams.Any(stream =>
+                    stream != null &&
+                    (stream.Type == MediaStreamType.Video || stream.Type == MediaStreamType.Audio)))
+            {
+                return "MediaSourceInfo.MediaStreams has no video or audio stream";
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// 获取媒体信息 JSON 的读取/判存路径：
+        /// 若启用了自定义集中备份目录，优先使用集中目录路径；若集中目录尚无文件而原同目录存在历史备份，则兼容回退复用旧备份。
+        /// </summary>
+        public string GetJsonPath(BaseItem item, string? customBackupDirectory = null)
+        {
+            return BackupPathResolver.GetJsonPath(item, customBackupDirectory, _logger);
+        }
+
+        /// <summary>
+        /// 获取媒体信息 JSON 的主写入路径（启用合法的自定义集中目录时返回镜像路径，否则返回 .strm 同目录路径）
+        /// </summary>
+        public string GetWriteJsonPath(BaseItem item, string? customBackupDirectory = null)
+        {
+            return BackupPathResolver.GetWriteJsonPath(item, customBackupDirectory, _logger);
+        }
+
+        /// <summary>
+        /// 获取经典的 .strm 同目录 JSON 备份路径
+        /// </summary>
+        public string GetSidecarJsonPath(BaseItem item)
+        {
+            return BackupPathResolver.GetSidecarJsonPath(item);
+        }
+
+        /// <summary>
+        /// 获取音频内嵌封面的 .metadata 目录路径（启用合法的自定义集中目录时返回镜像目录下的 .metadata，否则返回 .strm 同目录 .metadata）
+        /// </summary>
+        public string GetAudioMetadataDirectory(BaseItem item, string? customBackupDirectory = null)
+        {
+            return BackupPathResolver.GetAudioMetadataDirectory(item, customBackupDirectory, _logger);
+        }
+
+        /// <summary>
+        /// 获取 .strm 同目录下的经典 .metadata 目录路径
+        /// </summary>
+        public string GetSidecarAudioMetadataDirectory(BaseItem item)
+        {
+            return BackupPathResolver.GetSidecarAudioMetadataDirectory(item);
         }
 
         /// <summary>
@@ -180,6 +226,70 @@ namespace StrmTool.Common
         }
 
         /// <summary>
+        /// 将有效的同目录历史备份原样迁移至集中目录；已有目标文件不会被覆盖。
+        /// </summary>
+        public async Task<bool> TryMigrateSidecarBackupAsync(BaseItem item, CancellationToken cancellationToken)
+        {
+            var customBackupDirectory = Plugin.GetSafeConfiguration().CustomBackupDirectory;
+            var destination = GetWriteJsonPath(item, customBackupDirectory);
+            var source = GetSidecarJsonPath(item);
+            if (PathStringComparer.Equals(source, destination) || !File.Exists(source))
+            {
+                return false;
+            }
+
+            // 先读源文件并校验：源读取只占用源路径锁，不阻塞目标路径的导出。
+            // 目标是否已存在会在取得导出锁后再次确认，因此提前读取不会造成覆盖。
+            var document = await ReadDocumentAsync<List<MediaSourceWithChapters>>(source, cancellationToken)
+                .ConfigureAwait(false);
+            if (!document.Found || document.Error != null ||
+                GetValidationFailure(document.Value) != null)
+            {
+                Common.LogHelper.Warn(_logger, $"Cannot migrate invalid or unavailable sidecar backup: {source}");
+                return false;
+            }
+
+            var exportGate = GetWriteCoordinationLock(destination);
+            await exportGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                if (File.Exists(destination))
+                {
+                    return true;
+                }
+
+                var gate = GetPathLock(destination);
+                await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    if (File.Exists(destination))
+                    {
+                        return true;
+                    }
+
+                    var directory = Path.GetDirectoryName(destination);
+                    if (!string.IsNullOrEmpty(directory))
+                    {
+                        Directory.CreateDirectory(directory);
+                    }
+
+                    await AtomicFile.WriteAllTextAsync(destination, document.State!.Text!, cancellationToken, reuseTempFile: true)
+                        .ConfigureAwait(false);
+                    UpdateCache(destination, document.Value![0].AudioMetadata);
+                    return true;
+                }
+                finally
+                {
+                    gate.Release();
+                }
+            }
+            finally
+            {
+                exportGate.Release();
+            }
+        }
+
+        /// <summary>
         /// 在路径级互斥下读取并反序列化整份 JSON 文档。
         /// 读取、反序列化与文件状态采集都由存储层统一完成，恢复方只负责语义校验。
         /// </summary>
@@ -205,6 +315,109 @@ namespace StrmTool.Common
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// 同步读取并反序列化整份 JSON 文档，供必须在同步上下文（如完整性检查）中调用的场景使用，
+        /// 避免 `.GetAwaiter().GetResult()` 这种同步等待异步的状态机开销。
+        /// </summary>
+        internal JsonDocumentReadResult<T> ReadDocumentSync<T>(string jsonFilePath)
+            where T : class
+        {
+            var result = new JsonDocumentReadResult<T>();
+            var gate = GetPathLock(jsonFilePath);
+            gate.Wait();
+            try
+            {
+                var fileInfo = new FileInfo(jsonFilePath);
+                if (!fileInfo.Exists)
+                {
+                    return result;
+                }
+
+                result.State = new JsonReadResult
+                {
+                    Text = File.ReadAllText(jsonFilePath),
+                    Length = fileInfo.Length,
+                    LastWriteTicks = fileInfo.LastWriteTimeUtc.Ticks
+                };
+            }
+            finally
+            {
+                gate.Release();
+            }
+
+            try
+            {
+                result.Value = _jsonSerializer.DeserializeFromString<T>(result.State.Text!);
+            }
+            catch (Exception ex)
+            {
+                result.Error = ex;
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// 获取已缓存的结构校验结论；文件已被改写或未缓存时返回 null
+        /// </summary>
+        internal bool? TryGetCachedDocumentValidity(string jsonFilePath)
+        {
+            try
+            {
+                var fileInfo = new FileInfo(jsonFilePath);
+                if (!fileInfo.Exists)
+                {
+                    DocumentValidityCache.TryRemove(jsonFilePath, out _);
+                    return null;
+                }
+
+                if (DocumentValidityCache.TryGetValue(jsonFilePath, out var cached) &&
+                    cached.LastWriteTicks == fileInfo.LastWriteTimeUtc.Ticks &&
+                    cached.Length == fileInfo.Length)
+                {
+                    return cached.Valid;
+                }
+            }
+            catch (Exception ex)
+            {
+                Common.LogHelper.Debug(_logger, $"Failed to inspect backup validity cache for '{jsonFilePath}': {ex.Message}");
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// 记录结构校验结论，供后续完整性检查直接复用
+        /// </summary>
+        internal void StoreDocumentValidity(string jsonFilePath, bool valid)
+        {
+            try
+            {
+                var fileInfo = new FileInfo(jsonFilePath);
+                if (!fileInfo.Exists)
+                {
+                    DocumentValidityCache.TryRemove(jsonFilePath, out _);
+                    return;
+                }
+
+                if (DocumentValidityCache.Count >= MaxDocumentValidityEntries)
+                {
+                    DocumentValidityCache.Clear();
+                }
+
+                DocumentValidityCache[jsonFilePath] = new DocumentValidityCacheEntry
+                {
+                    LastWriteTicks = fileInfo.LastWriteTimeUtc.Ticks,
+                    Length = fileInfo.Length,
+                    Valid = valid
+                };
+            }
+            catch (Exception ex)
+            {
+                Common.LogHelper.Debug(_logger, $"Failed to cache backup validity for '{jsonFilePath}': {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -374,6 +587,7 @@ namespace StrmTool.Common
                     return;
                 }
 
+                DocumentValidityCache.TryRemove(jsonFilePath, out _);
                 StoreCacheEntry(jsonFilePath, new JsonAudioTagCacheEntry
                 {
                     LastWriteTicks = fileInfo.LastWriteTimeUtc.Ticks,
@@ -475,15 +689,16 @@ namespace StrmTool.Common
 
         private static void RemoveCacheEntry(string jsonFilePath)
         {
+            DocumentValidityCache.TryRemove(jsonFilePath, out _);
             if (AudioTagCache.TryRemove(jsonFilePath, out _))
             {
                 Interlocked.Decrement(ref _approxCacheCount);
             }
         }
 
-        private static SemaphoreSlim[] CreatePathLocks()
+        private static SemaphoreSlim[] CreateLockStripes(int count)
         {
-            var locks = new SemaphoreSlim[PathLockStripes];
+            var locks = new SemaphoreSlim[count];
             for (int i = 0; i < locks.Length; i++)
             {
                 locks[i] = new SemaphoreSlim(1, 1);
@@ -494,7 +709,7 @@ namespace StrmTool.Common
 
         private static SemaphoreSlim GetPathLock(string path)
         {
-            int hash = PathComparer.GetHashCode(path) & int.MaxValue;
+            int hash = BackupPathResolver.PathComparer.GetHashCode(path) & int.MaxValue;
             return PathLocks[hash % PathLockStripes];
         }
 
@@ -619,19 +834,7 @@ namespace StrmTool.Common
         /// </summary>
         internal static string MakeSafeFilename(string? name)
         {
-            if (string.IsNullOrEmpty(name))
-            {
-                return "strmtool";
-            }
-
-            var invalidChars = new HashSet<char>(Path.GetInvalidFileNameChars());
-            var sb = new StringBuilder(name.Length);
-            foreach (char c in name)
-            {
-                sb.Append(invalidChars.Contains(c) ? '_' : c);
-            }
-
-            return sb.ToString();
+            return BackupPathResolver.MakeSafeFilename(name);
         }
     }
 }

@@ -51,18 +51,29 @@ namespace StrmTool.Common
 
             try
             {
-                var mediaSourcesWithChapters = await PrepareMediaSourcesForExportAsync(
-                    item, cancellationToken, audioTagsProbed).ConfigureAwait(false);
-                if (mediaSourcesWithChapters.Count == 0)
+                var config = Plugin.GetSafeConfiguration();
+                var customBackupDirectory = config.CustomBackupDirectory;
+                var jsonFilePath = _jsonStore.GetWriteJsonPath(item, customBackupDirectory);
+                var gate = MediaInfoJsonStore.GetWriteCoordinationLock(jsonFilePath);
+                await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
                 {
-                    Common.LogHelper.Warn(_logger, $"No media sources available for {item.Name}, skipping export");
-                    return false;
-                }
+                    var mediaSourcesWithChapters = await PrepareMediaSourcesForExportAsync(
+                        item, config, cancellationToken, audioTagsProbed).ConfigureAwait(false);
+                    if (mediaSourcesWithChapters.Count == 0)
+                    {
+                        Common.LogHelper.Warn(_logger, $"No media sources available for {item.Name}, skipping export");
+                        return false;
+                    }
 
-                var jsonFilePath = _jsonStore.GetJsonPath(item);
-                await _jsonStore.WriteAsync(jsonFilePath, mediaSourcesWithChapters, cancellationToken).ConfigureAwait(false);
-                Common.LogHelper.Debug(_logger, $"Exported {item.Name} → {jsonFilePath}");
-                return true;
+                    await _jsonStore.WriteAsync(jsonFilePath, mediaSourcesWithChapters, cancellationToken).ConfigureAwait(false);
+                    Common.LogHelper.Debug(_logger, $"Exported {item.Name} → {jsonFilePath}");
+                    return true;
+                }
+                finally
+                {
+                    gate.Release();
+                }
             }
             catch (OperationCanceledException)
             {
@@ -77,6 +88,7 @@ namespace StrmTool.Common
 
         private async Task<List<MediaSourceWithChapters>> PrepareMediaSourcesForExportAsync(
             BaseItem item,
+            PluginConfiguration config,
             CancellationToken cancellationToken,
             bool audioTagsProbed = false)
         {
@@ -90,13 +102,80 @@ namespace StrmTool.Common
             // 仅导出当前 .strm 条目自身的媒体源，不混入多版本合并中的其他版本，避免恢复时规格错配
             var mediaSources = item.GetMediaSources(false, false, libraryOptions);
             var sanitizedChapters = CreateSanitizedChapters(_itemRepository.GetChapters(item));
-            var embeddedImage = await LoadEmbeddedImageAsync(item, cancellationToken).ConfigureAwait(false);
+            var embeddedImage = await LoadEmbeddedImageAsync(item, config.CustomBackupDirectory, cancellationToken)
+                .ConfigureAwait(false);
             bool? zeroFingerprintConfidence = item is Episode
                 ? !string.IsNullOrEmpty(_itemRepository.GetIntroDetectionFailureResult(item.InternalId))
                 : (bool?)null;
-            var audioMetadata = item is Audio audio && AudioMetadataHelper.IsMusicLibraryAudio(audio, _libraryManager)
-                ? AudioMetadataHelper.BuildAudioMetadataForExport(audio, _libraryManager, audioTagsProbed)
-                : null;
+            bool isMusicAudio = item is Audio && AudioMetadataHelper.IsMusicLibraryAudio(item, _libraryManager);
+            bool preserveAudioMetadata = isMusicAudio && !config.EnableMusicMetadata;
+            var readJsonPath = _jsonStore.GetJsonPath(item, config.CustomBackupDirectory);
+            MediaSourceWithChapters? previous = null;
+            if (sanitizedChapters.Count == 0 || (item is Audio && embeddedImage == null) || preserveAudioMetadata)
+            {
+                var existing = await _jsonStore.ReadDocumentAsync<List<MediaSourceWithChapters>>(
+                    readJsonPath, cancellationToken).ConfigureAwait(false);
+                if (existing.Found)
+                {
+                    if (existing.Error != null || existing.Value == null ||
+                        existing.Value.Count == 0 || existing.Value[0] == null)
+                    {
+                        // 先保留损坏备份，再允许从数据库重建；隔离失败时不能覆盖原文件。
+                        var state = existing.State!;
+                        if (!await _jsonStore.TryQuarantineAsync(
+                            readJsonPath, state.Length, state.LastWriteTicks,
+                            "Cannot preserve existing media info").ConfigureAwait(false))
+                        {
+                            throw new InvalidDataException($"Cannot preserve existing media info from '{readJsonPath}'.", existing.Error);
+                        }
+                    }
+                    else
+                    {
+                        previous = existing.Value[0];
+                    }
+                }
+
+                if (previous == null)
+                {
+                    // 主备份损坏时，同目录旧备份可能仍有效：隔离主备份后先尝试从旧备份保留章节/封面/标签，
+                    // 避免集中目录重建后旧备份被遮蔽、其独有数据永久失效。
+                    var sidecarPath = _jsonStore.GetSidecarJsonPath(item);
+                    if (!MediaInfoJsonStore.PathStringComparer.Equals(sidecarPath, readJsonPath))
+                    {
+                        var sidecar = await _jsonStore.ReadDocumentAsync<List<MediaSourceWithChapters>>(
+                            sidecarPath, cancellationToken).ConfigureAwait(false);
+                        if (sidecar.Found && sidecar.Error == null &&
+                            MediaInfoJsonStore.GetValidationFailure(sidecar.Value) == null)
+                        {
+                            previous = sidecar.Value![0];
+                        }
+                    }
+                }
+            }
+
+            if (sanitizedChapters.Count == 0 && previous?.Chapters != null)
+            {
+                sanitizedChapters = previous.Chapters;
+            }
+
+            if (embeddedImage == null && !string.IsNullOrEmpty(previous?.EmbeddedImage))
+            {
+                embeddedImage = (previous.EmbeddedImage!, previous.EmbeddedImageExtension!);
+            }
+
+            AudioMetadataInfo? audioMetadata = null;
+            if (preserveAudioMetadata)
+            {
+                // 关闭功能时不从可能不完整的数据库重建标签，也不凭空标记为已探测。
+                audioMetadata = previous?.AudioMetadata;
+            }
+            else if (isMusicAudio && item is Audio audio)
+            {
+                bool effectiveAudioTagsProbed = audioTagsProbed ||
+                                                _jsonStore.HasProbedAudioTags(readJsonPath);
+                audioMetadata = AudioMetadataHelper.BuildAudioMetadataForExport(
+                    audio, _libraryManager, effectiveAudioTagsProbed);
+            }
 
             var mediaSourcesWithChapters = new List<MediaSourceWithChapters>(mediaSources.Count);
             foreach (var mediaSource in mediaSources)
@@ -117,15 +196,15 @@ namespace StrmTool.Common
             return mediaSourcesWithChapters;
         }
 
-        private static async Task<(string Base64, string Extension)?> LoadEmbeddedImageAsync(
-            BaseItem item, CancellationToken cancellationToken)
+        private async Task<(string Base64, string Extension)?> LoadEmbeddedImageAsync(
+            BaseItem item, string? customBackupDirectory, CancellationToken cancellationToken)
         {
             if (!(item is Audio))
             {
                 return null;
             }
 
-            var candidatePath = ResolveAudioImageFilePath(item);
+            var candidatePath = ResolveAudioImageFilePath(item, customBackupDirectory);
             if (string.IsNullOrWhiteSpace(candidatePath))
             {
                 return null;
@@ -141,7 +220,7 @@ namespace StrmTool.Common
             return (Convert.ToBase64String(imageBytes), extension);
         }
 
-        private static string? ResolveAudioImageFilePath(BaseItem item)
+        private string? ResolveAudioImageFilePath(BaseItem item, string? customBackupDirectory)
         {
             var primaryImageInfo = item.GetImageInfo(ImageType.Primary, 0);
             if (primaryImageInfo != null &&
@@ -151,26 +230,28 @@ namespace StrmTool.Common
                 return primaryImageInfo.Path;
             }
 
-            // 兜底查找同目录 .metadata/{baseName}.* 已落盘的封面，防止数据库尚未刷新图片索引时升级 JSON 抹除封面
-            var mediaDirectory = !string.IsNullOrWhiteSpace(item.Path) ? Path.GetDirectoryName(item.Path) : null;
-            if (string.IsNullOrWhiteSpace(mediaDirectory))
-            {
-                return null;
-            }
-
-            var metadataDir = Path.Combine(mediaDirectory, ".metadata");
-            if (!Directory.Exists(metadataDir))
-            {
-                return null;
-            }
-
+            // 兜底查找集中备份或同目录 .metadata/{baseName}.* 已落盘的封面，防止数据库尚未刷新图片索引时升级 JSON 抹除封面
             var baseName = MediaInfoRestorer.GetAudioImageBaseName(item);
-            foreach (var ext in MediaInfoRestorer.SupportedAudioImageExtensions)
+            var primaryMetaDir = _jsonStore.GetAudioMetadataDirectory(item, customBackupDirectory);
+            var fallbackMetaDir = _jsonStore.GetSidecarAudioMetadataDirectory(item);
+            var candidateDirs = MediaInfoJsonStore.PathStringComparer.Equals(primaryMetaDir, fallbackMetaDir)
+                ? new[] { primaryMetaDir }
+                : new[] { primaryMetaDir, fallbackMetaDir };
+
+            foreach (var metadataDir in candidateDirs)
             {
-                var fallbackPath = Path.Combine(metadataDir, $"{baseName}{ext}");
-                if (File.Exists(fallbackPath))
+                if (string.IsNullOrWhiteSpace(metadataDir) || !Directory.Exists(metadataDir))
                 {
-                    return fallbackPath;
+                    continue;
+                }
+
+                foreach (var ext in MediaInfoRestorer.SupportedAudioImageExtensions)
+                {
+                    var fallbackPath = Path.Combine(metadataDir, $"{baseName}{ext}");
+                    if (File.Exists(fallbackPath))
+                    {
+                        return fallbackPath;
+                    }
                 }
             }
 

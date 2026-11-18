@@ -53,6 +53,7 @@ namespace StrmTool.Common
                 }
 
                 var isAudio = item.MediaType == MediaType.Audio;
+                var extractChapters = !isAudio && Plugin.GetSafeConfiguration().ExtractVideoChapters;
                 var mediaInfo = await _mediaProbeManager.GetMediaInfo(
                     new MediaInfoRequest
                     {
@@ -62,7 +63,7 @@ namespace StrmTool.Common
                             Protocol = GetProtocolFromPath(strmContent),
                         },
                         MediaType = isAudio ? DlnaProfileType.Audio : DlnaProfileType.Video,
-                        ExtractChapters = !isAudio,
+                        ExtractChapters = extractChapters,
                     },
                     cancellationToken).ConfigureAwait(false);
 
@@ -72,7 +73,11 @@ namespace StrmTool.Common
                         item, mediaInfo.MediaStreams, _libraryManager);
                     _itemRepository.SaveMediaStreams(item.InternalId, streamsToSave, cancellationToken);
 
-                    SaveProbedChaptersIfAbsent(item, isAudio, mediaInfo);
+                    if (extractChapters)
+                    {
+                        SaveProbedChaptersIfAbsent(item, isAudio, mediaInfo);
+                    }
+
                     MediaInfoHelper.ApplyMediaSourceInfo(item, mediaInfo, _libraryManager, cancellationToken);
 
                     Common.LogHelper.Debug(_logger, $"Successfully saved {streamsToSave.Count} media streams and updated item properties for {fileName}");

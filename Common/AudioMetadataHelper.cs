@@ -64,7 +64,8 @@ namespace StrmTool.Common
         /// </summary>
         public static bool HasMissingAudioMetadata(BaseItem? item, ILibraryManager? libraryManager = null)
         {
-            if (!IsMusicLibraryAudio(item, libraryManager))
+            if (!Plugin.GetSafeConfiguration().EnableMusicMetadata ||
+                !IsMusicLibraryAudio(item, libraryManager))
             {
                 return false;
             }
@@ -86,7 +87,8 @@ namespace StrmTool.Common
             IEnumerable<MediaStream>? currentStreams = null,
             ILibraryManager? libraryManager = null)
         {
-            if (!IsMusicLibraryAudio(item, libraryManager))
+            if (!Plugin.GetSafeConfiguration().EnableExternalLyrics ||
+                !IsMusicLibraryAudio(item, libraryManager))
             {
                 return false;
             }

@@ -49,6 +49,7 @@ namespace StrmTool.Common
         {
             MediaInfoJsonStore.ClearCache();
             StrmFileProcessor.ClearInFlightState();
+            LibraryScopeFilter.InvalidateScopedCountCache(force: true);
         }
 
         /// <summary>
@@ -56,22 +57,60 @@ namespace StrmTool.Common
         /// </summary>
         public async Task ExportAllAsync(IProgress<double> progress, CancellationToken cancellationToken)
         {
-            var validItems = MediaInfoHelper.GetStrmFilesWithCompleteMediaInfo(_libraryManager, this);
-            Common.LogHelper.Info(_logger, $"Found {validItems.Count} STRM files with complete media info");
+            var validItems = MediaInfoHelper.GetAllStrmFiles(_libraryManager)
+                .Where(item =>
+                {
+                    var destination = GetWriteMediaInfoJsonPath(item);
+                    var sidecar = _jsonStore.GetSidecarJsonPath(item);
+                    return (!MediaInfoJsonStore.PathStringComparer.Equals(destination, sidecar) &&
+                            !File.Exists(destination) && File.Exists(sidecar)) ||
+                           MediaInfoHelper.HasCompleteMediaInfo(item, this, _libraryManager);
+                })
+                .ToList();
+            Common.LogHelper.Info(_logger, $"Found {validItems.Count} STRM files eligible for export or backup migration");
 
             int skipped = 0;
+            int migratedCount = 0;
 
             int exported = await ProcessItemsAsync(
                 validItems,
                 "export",
                 async (item, ct) =>
                 {
-                    string filePath = GetMediaInfoJsonPath(item);
+                    string filePath = GetWriteMediaInfoJsonPath(item);
+                    var sidecarPath = _jsonStore.GetSidecarJsonPath(item);
+                    if (!File.Exists(filePath) &&
+                        !MediaInfoJsonStore.PathStringComparer.Equals(filePath, sidecarPath) &&
+                        File.Exists(sidecarPath))
+                    {
+                        // 先保留完整历史备份，包括数据库中可能已不存在的章节、封面及未知字段。
+                        var migrated = await _jsonStore.TryMigrateSidecarBackupAsync(item, ct).ConfigureAwait(false);
+                        if (migrated)
+                        {
+                            Interlocked.Increment(ref migratedCount);
+                            Common.LogHelper.Info(_logger, $"Migrated {item.Name} backup to: {filePath}");
+                            return true;
+                        }
+
+                        Common.LogHelper.Warn(_logger, $"Could not migrate {item.Name}; preserving sidecar backup: {sidecarPath}");
+                        return false;
+                    }
+
                     if (File.Exists(filePath) &&
-                        (!AudioMetadataHelper.IsMusicLibraryAudio(item, _libraryManager) || HasProbedAudioTagsInJson(filePath)))
+                        (!Plugin.GetSafeConfiguration().EnableMusicMetadata ||
+                         item.IsLocked ||
+                         !AudioMetadataHelper.IsMusicLibraryAudio(item, _libraryManager) ||
+                         HasProbedAudioTagsInJson(filePath)))
                     {
                         Interlocked.Increment(ref skipped);
                         Common.LogHelper.Debug(_logger, $"Skipped {item.Name}, JSON already exists: {filePath}");
+                        return null;
+                    }
+
+                    // 候选项可能仅因存在旧备份而入选；若并发创建了目标文件，不能用不完整的数据库覆盖它。
+                    if (!MediaInfoHelper.HasCompleteMediaInfo(item, this, _libraryManager))
+                    {
+                        Interlocked.Increment(ref skipped);
                         return null;
                     }
 
@@ -88,7 +127,10 @@ namespace StrmTool.Common
                 progress,
                 cancellationToken).ConfigureAwait(false);
 
-            Common.LogHelper.Info(_logger, $"Export completed. Skipped {skipped} existing JSON files, saved {exported} new files.");
+            Common.LogHelper.Info(
+                _logger,
+                $"Export completed. Skipped {skipped} existing JSON files, migrated {migratedCount} sidecar backups, " +
+                $"saved {exported - migratedCount} new files.");
         }
 
         /// <summary>
@@ -215,11 +257,19 @@ namespace StrmTool.Common
         }
 
         /// <summary>
-        /// 获取媒体信息JSON文件路径，直接保存在strm文件所在目录
+        /// 获取媒体信息 JSON 文件路径（读取时支持自定义目录缺失后回退同目录旧备份）
         /// </summary>
         public string GetMediaInfoJsonPath(BaseItem item)
         {
             return _jsonStore.GetJsonPath(item);
+        }
+
+        /// <summary>
+        /// 获取媒体信息 JSON 的主写入路径（自定义目录优先，否则为 .strm 同目录）
+        /// </summary>
+        public string GetWriteMediaInfoJsonPath(BaseItem item)
+        {
+            return _jsonStore.GetWriteJsonPath(item);
         }
 
         /// <summary>
@@ -230,6 +280,12 @@ namespace StrmTool.Common
             CancellationToken cancellationToken = default)
         {
             return _restorer.RestoreItemAsync(item, cancellationToken);
+        }
+
+        internal Task<bool> TryRestoreFromSidecarIfPrimaryInvalidAsync(
+            BaseItem item, CancellationToken cancellationToken)
+        {
+            return _restorer.TryRestoreFromSidecarIfPrimaryInvalidAsync(item, cancellationToken);
         }
 
         /// <summary>
@@ -291,9 +347,59 @@ namespace StrmTool.Common
                 return false;
             }
 
-            _jsonStore.TryGetAudioMetadata(
-                GetMediaInfoJsonPath(audio), includeMetadata: true, out _, out var cachedAudioMetadata);
-            return AudioMetadataHelper.CanRestoreMissingAudioMetadata(audio, cachedAudioMetadata, _libraryManager);
+            var primary = GetWriteMediaInfoJsonPath(audio);
+            var selected = GetMediaInfoJsonPath(audio);
+            _jsonStore.TryGetAudioMetadata(selected, includeMetadata: true, out _, out var cachedAudioMetadata);
+            if (AudioMetadataHelper.CanRestoreMissingAudioMetadata(audio, cachedAudioMetadata, _libraryManager))
+            {
+                return true;
+            }
+
+            var sidecar = _jsonStore.GetSidecarJsonPath(audio);
+            if (MediaInfoJsonStore.PathStringComparer.Equals(selected, primary) &&
+                !MediaInfoJsonStore.PathStringComparer.Equals(primary, sidecar) &&
+                File.Exists(primary) && File.Exists(sidecar))
+            {
+                // 即使损坏文件的尾部恰好包含 AudioTagsProbed，也不能因此遮蔽有效的同目录标签。
+                // 仅在已有集中备份无法补全标签时读取全文，且结构校验结果按 (修改时间, 长度) 缓存，
+                // 避免每次完整性检查都重新反序列化含 Base64 封面的大文件。
+                if (!IsBackupStructurallyValid(primary))
+                {
+                    _jsonStore.TryGetAudioMetadata(sidecar, includeMetadata: true, out _, out cachedAudioMetadata);
+                    return AudioMetadataHelper.CanRestoreMissingAudioMetadata(audio, cachedAudioMetadata, _libraryManager);
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 判断 JSON 备份结构是否可用（结果按文件状态缓存，避免重复全量反序列化）。
+        /// </summary>
+        private bool IsBackupStructurallyValid(string jsonFilePath)
+        {
+            var cachedValidity = _jsonStore.TryGetCachedDocumentValidity(jsonFilePath);
+            if (cachedValidity.HasValue)
+            {
+                return cachedValidity.Value;
+            }
+
+            bool valid;
+            try
+            {
+                var document = _jsonStore.ReadDocumentSync<List<MediaSourceWithChapters>>(jsonFilePath);
+                valid = document.Found &&
+                        document.Error == null &&
+                        MediaInfoJsonStore.GetValidationFailure(document.Value) == null;
+            }
+            catch (Exception ex)
+            {
+                Common.LogHelper.Debug(_logger, $"Could not inspect backup '{jsonFilePath}': {ex.Message}");
+                valid = false;
+            }
+
+            _jsonStore.StoreDocumentValidity(jsonFilePath, valid);
+            return valid;
         }
 
         private bool HasProbedAudioTagsInJson(string jsonFilePath)

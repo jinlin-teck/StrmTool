@@ -57,6 +57,10 @@ namespace StrmTool.Handlers
         private int _activeLocalWorkers;
         private int _activeProbeWorkers;
 
+        internal int QueuedCount => _localQueue.Count + _probeQueue.Count;
+        internal int LocalQueueCount => _localQueue.Count;
+        internal int ProbeQueueCount => _probeQueue.Count;
+
         public ItemAddedEventHandler(
             ILogger logger,
             ILibraryManager libraryManager,
@@ -82,6 +86,8 @@ namespace StrmTool.Handlers
                     return;
                 }
 
+                LibraryScopeFilter.InvalidateScopedCountCache();
+
                 if (_cancellationToken.IsCancellationRequested)
                 {
                     return;
@@ -91,6 +97,18 @@ namespace StrmTool.Handlers
                 if (!config.EnableAutoExtract)
                 {
                     Common.LogHelper.Debug(_logger, $"Auto-extract is disabled, skipping: {e.Item.Name}");
+                    return;
+                }
+
+                if (!MediaInfoHelper.IsItemInConfiguredLibraries(e.Item, _libraryManager, config))
+                {
+                    Common.LogHelper.Debug(_logger, $"Item outside configured libraries, skipping: {e.Item.Name}");
+                    return;
+                }
+
+                if (!config.IncludeExtraVideos && MediaInfoHelper.IsExtraVideoItem(e.Item))
+                {
+                    Common.LogHelper.Debug(_logger, $"Extra video processing is disabled, skipping: {e.Item.Name}");
                     return;
                 }
 
@@ -253,7 +271,18 @@ namespace StrmTool.Handlers
                     return;
                 }
 
+                if (!MediaInfoHelper.IsItemInConfiguredLibraries(item, _libraryManager, config))
+                {
+                    return;
+                }
+
+                if (!config.IncludeExtraVideos && MediaInfoHelper.IsExtraVideoItem(item))
+                {
+                    return;
+                }
+
                 bool isUnlockedMusicNeedingTagProbe =
+                    config.EnableMusicMetadata &&
                     AudioMetadataHelper.IsMusicLibraryAudio(item, _libraryManager) &&
                     !item.IsLocked &&
                     !_mediaInfoManager.HasProbedAudioTagsInJson(item);
@@ -355,6 +384,16 @@ namespace StrmTool.Handlers
                 if (!config.EnableAutoExtract)
                 {
                     work.Lease?.Cancel();
+                    return;
+                }
+
+                if (!MediaInfoHelper.IsItemInConfiguredLibraries(work.Item, _libraryManager, config) ||
+                    (!config.IncludeExtraVideos && MediaInfoHelper.IsExtraVideoItem(work.Item)))
+                {
+                    work.Lease?.Cancel();
+                    Common.LogHelper.Debug(
+                        _logger,
+                        $"Skipped queued remote probe due to updated scope configuration: {work.Item.Name}");
                     return;
                 }
 

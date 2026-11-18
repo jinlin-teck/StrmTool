@@ -68,6 +68,10 @@ namespace StrmTool.Common
 
         private static readonly ConcurrentDictionary<string, InFlightLease> InFlightLeases =
             new ConcurrentDictionary<string, InFlightLease>(MediaInfoJsonStore.PathStringComparer);
+        private static readonly object DelayJitterRandomLock = new object();
+        private static readonly Random DelayJitterRandom = new Random();
+
+        internal static int InFlightCount => InFlightLeases.Count;
 
         private readonly ILogger _logger;
         private readonly ILibraryManager _libraryManager;
@@ -232,6 +236,7 @@ namespace StrmTool.Common
             if (MediaInfoHelper.HasJsonFile(item, _mediaInfoManager))
             {
                 bool isUnlockedMusicNeedingTagProbe =
+                    Plugin.GetSafeConfiguration().EnableMusicMetadata &&
                     AudioMetadataHelper.IsMusicLibraryAudio(item, _libraryManager) &&
                     !item.IsLocked &&
                     !_mediaInfoManager.HasProbedAudioTagsInJson(item);
@@ -275,10 +280,16 @@ namespace StrmTool.Common
             var limiter = await ProcessingConcurrencyLimiter.AcquireAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                if (delayMs > 0)
+                var jitterMs = Plugin.GetSafeConfiguration().ProcessingDelayJitterMs;
+                var (effectiveDelayMs, appliedJitterMs) = GetEffectiveDelayMs(delayMs, jitterMs);
+                if (effectiveDelayMs > 0)
                 {
-                    Common.LogHelper.Debug(_logger, $"Applying delay: {delayMs}ms before processing {item.Name}");
-                    await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
+                    Common.LogHelper.Debug(
+                        _logger,
+                        appliedJitterMs > 0
+                            ? $"Applying delay: {effectiveDelayMs}ms (base {delayMs}ms + jitter {appliedJitterMs}ms) before processing {item.Name}"
+                            : $"Applying delay: {effectiveDelayMs}ms before processing {item.Name}");
+                    await Task.Delay(effectiveDelayMs, cancellationToken).ConfigureAwait(false);
                 }
 
                 probeResult = await ProbeAndExportAsync(item, cancellationToken).ConfigureAwait(false);
@@ -303,6 +314,24 @@ namespace StrmTool.Common
             }
 
             return probeResult;
+        }
+
+        private static (int TotalDelayMs, int AppliedJitterMs) GetEffectiveDelayMs(int baseDelayMs, int jitterMs)
+        {
+            int clampedBase = Math.Max(0, baseDelayMs);
+            int clampedJitter = Math.Max(0, jitterMs);
+            if (clampedJitter == 0)
+            {
+                return (clampedBase, 0);
+            }
+
+            int appliedJitter;
+            lock (DelayJitterRandomLock)
+            {
+                appliedJitter = DelayJitterRandom.Next(0, clampedJitter + 1);
+            }
+
+            return (clampedBase + appliedJitter, appliedJitter);
         }
 
         private static async Task<ProcessResult> AwaitWithCallerCancellationAsync(
@@ -343,14 +372,24 @@ namespace StrmTool.Common
                 // 同时保证即使后续远程源不可用，本地歌词也能先行入库。
                 bool lyricsMerged = _mediaInfoManager.TryMergeLocalLyrics(item, cancellationToken);
 
-                bool isMusicAudio = AudioMetadataHelper.IsMusicLibraryAudio(item, _libraryManager);
+                bool isMusicAudio = Plugin.GetSafeConfiguration().EnableMusicMetadata &&
+                                    AudioMetadataHelper.IsMusicLibraryAudio(item, _libraryManager);
+                if (isMusicAudio && item is Audio audio &&
+                    (AudioMetadataHelper.HasMissingAudioMetadata(audio, _libraryManager) ||
+                     !MediaInfoHelper.HasCompleteMediaInfo(item.GetMediaStreams())) &&
+                    await _mediaInfoManager.TryRestoreFromSidecarIfPrimaryInvalidAsync(item, cancellationToken)
+                        .ConfigureAwait(false))
+                {
+                    return ProcessResult.RestoredFromJson;
+                }
+
                 bool hasProbedAudioTags = !isMusicAudio || _mediaInfoManager.HasProbedAudioTagsInJson(item);
                 if (MediaInfoHelper.HasCompleteMediaInfo(item, _mediaInfoManager, _libraryManager))
                 {
                     bool canUpgradeAudioTagsFromDb = !hasProbedAudioTags && !item.IsLocked;
                     if (canUpgradeAudioTagsFromDb || lyricsMerged)
                     {
-                        bool markAudioProbed = !(item is Audio lockedAudio && lockedAudio.IsLocked);
+                        bool markAudioProbed = isMusicAudio && !(item is Audio lockedAudio && lockedAudio.IsLocked);
                         var upgraded = await _mediaInfoManager.ExportItemAsync(
                             item, cancellationToken, audioTagsProbed: markAudioProbed).ConfigureAwait(false);
                         if (upgraded)
@@ -410,7 +449,8 @@ namespace StrmTool.Common
             {
                 bool lyricsMerged = _mediaInfoManager.TryMergeLocalLyrics(item, cancellationToken);
                 var streams = item.GetMediaStreams() ?? new List<MediaStream>();
-                bool isMusicAudio = AudioMetadataHelper.IsMusicLibraryAudio(item, _libraryManager);
+                bool isMusicAudio = Plugin.GetSafeConfiguration().EnableMusicMetadata &&
+                                    AudioMetadataHelper.IsMusicLibraryAudio(item, _libraryManager);
                 bool hasProbedAudioTags = !isMusicAudio || _mediaInfoManager.HasProbedAudioTagsInJson(item);
 
                 if (!MediaInfoHelper.HasCompleteMediaInfo(item, streams, _mediaInfoManager, _libraryManager))
@@ -423,7 +463,7 @@ namespace StrmTool.Common
                 bool canUpgradeAudioTagsFromDb = !hasProbedAudioTags && !item.IsLocked;
                 if (jsonMissing || canUpgradeAudioTagsFromDb || lyricsMerged)
                 {
-                    bool markAudioProbed = !(item is Audio lockedAudio && lockedAudio.IsLocked);
+                    bool markAudioProbed = isMusicAudio && !(item is Audio lockedAudio && lockedAudio.IsLocked);
                     var exported = await _mediaInfoManager.ExportItemAsync(
                         item, cancellationToken, audioTagsProbed: markAudioProbed).ConfigureAwait(false);
                     if (exported)
@@ -482,8 +522,9 @@ namespace StrmTool.Common
                     return ProcessResult.ExtractionFailed;
                 }
 
+                bool enableMusicMetadata = Plugin.GetSafeConfiguration().EnableMusicMetadata;
                 var exportSucceeded = await _mediaInfoManager.ExportItemAsync(
-                    item, cancellationToken, audioTagsProbed: true).ConfigureAwait(false);
+                    item, cancellationToken, audioTagsProbed: enableMusicMetadata).ConfigureAwait(false);
                 if (!exportSucceeded)
                 {
                     Common.LogHelper.Warn(_logger, $"{item.Name}: Media info extraction succeeded but JSON export failed");

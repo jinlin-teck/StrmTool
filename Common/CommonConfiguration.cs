@@ -18,13 +18,38 @@ namespace StrmTool.Common
         public const int StandardProcessingDelayMs = 2000;
 
         /// <summary>
+        /// 最大处理延迟（毫秒）
+        /// </summary>
+        public const int MaxProcessingDelayMs = 60000;
+
+        /// <summary>
+        /// 默认处理延迟随机抖动（毫秒）
+        /// </summary>
+        public const int DefaultProcessingDelayJitterMs = 0;
+
+        /// <summary>
+        /// 最大处理延迟随机抖动（毫秒）
+        /// </summary>
+        public const int MaxProcessingDelayJitterMs = 30000;
+
+        /// <summary>
         /// 媒体信息JSON文件扩展名
         /// </summary>
         public const string MediaInfoFileExtension = "-mediainfo.json";
 
         /// <summary>
-        /// 最大并发处理数
+        /// 最大并发处理数（默认值）
         /// </summary>
         public const int MaxConcurrency = 3;
+
+        /// <summary>
+        /// 最小并发处理数
+        /// </summary>
+        public const int MinConcurrency = 1;
+
+        /// <summary>
+        /// 最大并发处理数上限
+        /// </summary>
+        public const int MaxConcurrencyLimit = 10;
     }
 }
