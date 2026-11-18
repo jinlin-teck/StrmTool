@@ -72,8 +72,15 @@ namespace StrmTool.Common
         {
             if (!File.Exists(destinationPath))
             {
-                File.Move(sourcePath, destinationPath);
-                return;
+                try
+                {
+                    File.Move(sourcePath, destinationPath);
+                    return;
+                }
+                catch (IOException) when (File.Exists(destinationPath))
+                {
+                    // 并发场景下目标文件刚被创建，继续走下方的原子替换分支
+                }
             }
 
             try

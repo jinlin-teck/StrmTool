@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Entities;
@@ -8,43 +9,84 @@ using StrmTool.Common;
 
 namespace StrmTool.Handlers
 {
+    /// <summary>
+    /// 新入库 STRM 事件处理器：
+    /// 采用“本地快车道 (_localQueue) + 受限远程探测慢车道 (_probeQueue)”双通道分离调度，
+    /// 确保慢速远程探测与节流延迟永远不会阻塞后续具备本地 JSON 备份条目的即时恢复。
+    /// </summary>
     public class ItemAddedEventHandler
     {
+        private sealed class ProbeWorkItem
+        {
+            public ProbeWorkItem(
+                BaseItem item,
+                string dedupKey,
+                StrmFileProcessor.InFlightLease? lease,
+                bool canFallbackToLegacyJson)
+            {
+                Item = item;
+                DedupKey = dedupKey;
+                Lease = lease;
+                CanFallbackToLegacyJson = canFallbackToLegacyJson;
+            }
+
+            public BaseItem Item { get; }
+            public string DedupKey { get; }
+            public StrmFileProcessor.InFlightLease? Lease { get; }
+            public bool CanFallbackToLegacyJson { get; }
+        }
+
+        /// <summary>
+        /// 待处理队列最大总容量（本地快车道 + 远程探测队列共享上界）
+        /// </summary>
+        private const int MaxQueuedItems = 50000;
+        private const int MinLocalWorkers = 4;
+        private const int MaxLocalWorkers = 8;
+
         private readonly ILogger _logger;
-        private readonly CancellationTokenSource? _cancellationTokenSource;
+        private readonly ILibraryManager _libraryManager;
         private readonly MediaInfoManager _mediaInfoManager;
         private readonly StrmFileProcessor _strmFileProcessor;
-        private int _pendingTaskCount;
-        private const int MaxPendingTasks = 100;
+        private readonly CancellationToken _cancellationToken;
+
+        private readonly ConcurrentQueue<BaseItem> _localQueue = new ConcurrentQueue<BaseItem>();
+        private readonly ConcurrentQueue<ProbeWorkItem> _probeQueue = new ConcurrentQueue<ProbeWorkItem>();
+        private readonly ConcurrentDictionary<string, byte> _queuedKeys =
+            new ConcurrentDictionary<string, byte>(MediaInfoJsonStore.PathStringComparer);
+        private int _queuedCount;
+        private int _activeLocalWorkers;
+        private int _activeProbeWorkers;
 
         public ItemAddedEventHandler(
             ILogger logger,
+            ILibraryManager libraryManager,
             MediaInfoManager mediaInfoManager,
             StrmFileProcessor strmFileProcessor,
-            CancellationTokenSource? cancellationTokenSource = null)
+            CancellationToken cancellationToken = default)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _libraryManager = libraryManager ?? throw new ArgumentNullException(nameof(libraryManager));
             _mediaInfoManager = mediaInfoManager ?? throw new ArgumentNullException(nameof(mediaInfoManager));
             _strmFileProcessor = strmFileProcessor ?? throw new ArgumentNullException(nameof(strmFileProcessor));
-            _cancellationTokenSource = cancellationTokenSource;
+            _cancellationToken = cancellationToken;
         }
 
         public void OnItemAdded(object sender, ItemChangeEventArgs e)
         {
             try
             {
-                if (e.Item == null || string.IsNullOrEmpty(e.Item.Path) ||
+                if (e?.Item == null ||
+                    string.IsNullOrEmpty(e.Item.Path) ||
                     !MediaInfoHelper.IsStrmFile(e.Item.Path))
                 {
                     return;
                 }
 
-                if (_cancellationTokenSource?.IsCancellationRequested == true)
+                if (_cancellationToken.IsCancellationRequested)
                 {
                     return;
                 }
 
-                // 每个事件只取一次配置
                 var config = Plugin.GetSafeConfiguration();
                 if (!config.EnableAutoExtract)
                 {
@@ -52,33 +94,21 @@ namespace StrmTool.Handlers
                     return;
                 }
 
-                // 检查待处理任务数量，防止内存压力
-                if (Interlocked.Increment(ref _pendingTaskCount) > MaxPendingTasks)
+                var dedupKey = StrmFileProcessor.GetDedupKey(e.Item);
+                if (!TryReserveSlot(dedupKey, out bool rejectedByCapacity))
                 {
-                    Interlocked.Decrement(ref _pendingTaskCount);
-                    Common.LogHelper.Warn(_logger, $"Too many pending tasks ({MaxPendingTasks}), skipping {e.Item.Name}. It will be processed by scheduled task.");
+                    if (rejectedByCapacity)
+                    {
+                        Common.LogHelper.Warn(
+                            _logger,
+                            $"Event queue reached capacity ({MaxQueuedItems}), skipping {e.Item.Name}. It will be processed by scheduled task.");
+                    }
+
                     return;
                 }
 
-                var cancellationToken = _cancellationTokenSource?.Token ?? CancellationToken.None;
-                var delayMs = config.ProcessingDelayMs;
-
-                // 不把 token 传给 Task.Run：即使任务在调度前被取消，委托仍会执行到 finally 里的计数回收
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await ProcessItemWithErrorHandlingAsync(e.Item, delayMs, cancellationToken).ConfigureAwait(false);
-                    }
-                    catch (Exception ex)
-                    {
-                        Common.LogHelper.Error(_logger, $"Unhandled error in background task for {e.Item.Name}: {ex.Message}");
-                    }
-                    finally
-                    {
-                        Interlocked.Decrement(ref _pendingTaskCount);
-                    }
-                });
+                _localQueue.Enqueue(e.Item);
+                EnsureLocalWorkersRunning();
             }
             catch (Exception ex)
             {
@@ -87,16 +117,150 @@ namespace StrmTool.Handlers
             }
         }
 
-        private async Task ProcessItemWithErrorHandlingAsync(BaseItem item, int delayMs, CancellationToken cancellationToken)
+        private bool TryReserveSlot(string dedupKey, out bool rejectedByCapacity)
+        {
+            rejectedByCapacity = false;
+            if (!_queuedKeys.TryAdd(dedupKey, 0))
+            {
+                return false;
+            }
+
+            if (Interlocked.Increment(ref _queuedCount) > MaxQueuedItems)
+            {
+                ReleaseSlot(dedupKey);
+                rejectedByCapacity = true;
+                return false;
+            }
+
+            return true;
+        }
+
+        private void ReleaseSlot(string dedupKey)
+        {
+            if (_queuedKeys.TryRemove(dedupKey, out _))
+            {
+                Interlocked.Decrement(ref _queuedCount);
+            }
+        }
+
+        private void EnsureLocalWorkersRunning()
+        {
+            if (_cancellationToken.IsCancellationRequested)
+            {
+                CancelRemainingQueuesOnShutdown();
+                return;
+            }
+
+            if (_localQueue.IsEmpty)
+            {
+                return;
+            }
+
+            int targetWorkers = Math.Clamp(
+                Math.Max(MinLocalWorkers, ProcessingConcurrencyLimiter.MaxConcurrency),
+                MinLocalWorkers,
+                MaxLocalWorkers);
+
+            while (!_localQueue.IsEmpty)
+            {
+                int current = Volatile.Read(ref _activeLocalWorkers);
+                if (current >= targetWorkers)
+                {
+                    break;
+                }
+
+                if (Interlocked.CompareExchange(ref _activeLocalWorkers, current + 1, current) == current)
+                {
+                    _ = Task.Run(DrainLocalQueueAsync);
+                }
+            }
+        }
+
+        private void EnsureProbeWorkersRunning()
+        {
+            if (_cancellationToken.IsCancellationRequested)
+            {
+                CancelRemainingQueuesOnShutdown();
+                return;
+            }
+
+            if (_probeQueue.IsEmpty)
+            {
+                return;
+            }
+
+            int targetWorkers = Math.Max(1, ProcessingConcurrencyLimiter.MaxConcurrency);
+            while (!_probeQueue.IsEmpty)
+            {
+                int current = Volatile.Read(ref _activeProbeWorkers);
+                if (current >= targetWorkers)
+                {
+                    break;
+                }
+
+                if (Interlocked.CompareExchange(ref _activeProbeWorkers, current + 1, current) == current)
+                {
+                    _ = Task.Run(DrainProbeQueueAsync);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 第一阶段 Worker（本地快车道）：只执行毫秒级的完整性检查、本地 JSON 恢复与数据库补备份，
+        /// 绝不等待远程探测或延迟；确需远程探测的条目移交到 _probeQueue 由慢车道独立处理。
+        /// </summary>
+        private async Task DrainLocalQueueAsync()
         {
             try
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                while (!_cancellationToken.IsCancellationRequested && _localQueue.TryDequeue(out var item))
+                {
+                    await ProcessLocalStageForItemAsync(item).ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                Common.LogHelper.Error(_logger, $"Unhandled error in local event queue worker: {ex.Message}");
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _activeLocalWorkers);
 
-                // 完整性检查放在后台线程，避免同步仓储/文件 IO 阻塞媒体库扫描线程；
-                // 同时把日志也移到这里，避免全库扫描时对已完成条目刷屏。
-                if (MediaInfoHelper.HasCompleteMediaInfo(item, _mediaInfoManager) &&
-                    MediaInfoHelper.HasJsonFile(item, _mediaInfoManager))
+                if (_cancellationToken.IsCancellationRequested)
+                {
+                    CancelRemainingQueuesOnShutdown();
+                }
+                else if (!_localQueue.IsEmpty)
+                {
+                    EnsureLocalWorkersRunning();
+                }
+            }
+        }
+
+        private async Task ProcessLocalStageForItemAsync(BaseItem item)
+        {
+            var dedupKey = StrmFileProcessor.GetDedupKey(item);
+            bool handedOffToProbeQueue = false;
+            StrmFileProcessor.InFlightLease? lease = null;
+
+            try
+            {
+                _cancellationToken.ThrowIfCancellationRequested();
+
+                var config = Plugin.GetSafeConfiguration();
+                if (!config.EnableAutoExtract)
+                {
+                    return;
+                }
+
+                bool isUnlockedMusicNeedingTagProbe =
+                    AudioMetadataHelper.IsMusicLibraryAudio(item, _libraryManager) &&
+                    !item.IsLocked &&
+                    !_mediaInfoManager.HasProbedAudioTagsInJson(item);
+
+                if (MediaInfoHelper.HasCompleteMediaInfo(item, _mediaInfoManager, _libraryManager) &&
+                    MediaInfoHelper.HasJsonFile(item, _mediaInfoManager) &&
+                    !isUnlockedMusicNeedingTagProbe)
                 {
                     Common.LogHelper.Debug(_logger, $"{item.Name} already has complete media info, skipping");
                     return;
@@ -104,50 +268,143 @@ namespace StrmTool.Handlers
 
                 Common.LogHelper.Info(_logger, $"New strm file detected: {item.Name}");
 
-                // 从JSON恢复是纯本地操作：不延迟、不占用探测并发槽
-                if (MediaInfoHelper.ShouldRestoreFromJson(item, _mediaInfoManager))
+                // 若其他入口（如计划任务）已在处理该路径，不占用本地快车道等待远程探测，直接交由慢车道等待/接力
+                if (!_strmFileProcessor.TryAcquireInFlight(dedupKey, out lease, out _))
                 {
-                    var restoreResult = await _strmFileProcessor.TryRestoreFromJsonAsync(item, cancellationToken).ConfigureAwait(false);
-                    LogProcessResult(item.Name, restoreResult);
-                    if (restoreResult.IsTerminalSuccess())
-                    {
-                        return;
-                    }
-                }
-
-                // 数据库已完整时只在本地补备份，不延迟、不占远程探测槽
-                var ensured = await _strmFileProcessor.TryEnsureJsonFromDatabaseAsync(item, cancellationToken).ConfigureAwait(false);
-                if (ensured != null)
-                {
-                    LogProcessResult(item.Name, ensured.Value);
+                    _probeQueue.Enqueue(new ProbeWorkItem(item, dedupKey, lease: null, canFallbackToLegacyJson: false));
+                    handedOffToProbeQueue = true;
+                    EnsureProbeWorkersRunning();
                     return;
                 }
 
-                // 需要探测远程媒体：先占用全局探测槽，再应用延迟，避免对远程服务器造成压力
-                var limiter = await ProcessingConcurrencyLimiter.AcquireAsync(cancellationToken).ConfigureAwait(false);
-                try
+                var (localResult, canFallback) = await _strmFileProcessor
+                    .ExecuteLocalStageAsync(item, _cancellationToken)
+                    .ConfigureAwait(false);
+                if (localResult.HasValue)
                 {
-                    if (delayMs > 0)
-                    {
-                        Common.LogHelper.Debug(_logger, $"Applying delay: {delayMs}ms before processing {item.Name}");
-                        await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
-                    }
+                    lease!.Complete(localResult.Value);
+                    LogProcessResult(item.Name, localResult.Value);
+                    return;
+                }
 
-                    var result = await _strmFileProcessor.ProbeAndExportAsync(item, cancellationToken).ConfigureAwait(false);
-                    LogProcessResult(item.Name, result);
-                }
-                finally
-                {
-                    ProcessingConcurrencyLimiter.Release(limiter);
-                }
+                // 本地无法完成，将已持有的在途租约无缝移交至远程探测队列，本地快车道立即返回处理后续条目
+                var transferredLease = lease;
+                lease = null;
+                _probeQueue.Enqueue(new ProbeWorkItem(item, dedupKey, transferredLease, canFallback));
+                handedOffToProbeQueue = true;
+                EnsureProbeWorkersRunning();
             }
             catch (OperationCanceledException)
             {
-                Common.LogHelper.Debug(_logger, $"Processing cancelled for {item.Name}");
+                lease?.Cancel(_cancellationToken);
+                Common.LogHelper.Debug(_logger, $"Local stage cancelled for {item.Name}");
             }
             catch (Exception ex)
             {
-                Common.LogHelper.Error(_logger, $"Error processing item {item.Name}: {ex.Message}");
+                lease?.Complete(ProcessResult.Failed);
+                Common.LogHelper.Error(_logger, $"Error in local stage for item {item.Name}: {ex.Message}");
+            }
+            finally
+            {
+                if (!handedOffToProbeQueue)
+                {
+                    lease?.Dispose();
+                    ReleaseSlot(dedupKey);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 第二阶段 Worker（远程探测慢车道）：按受限并发执行延迟与远程 ffprobe 探测
+        /// </summary>
+        private async Task DrainProbeQueueAsync()
+        {
+            try
+            {
+                while (!_cancellationToken.IsCancellationRequested && _probeQueue.TryDequeue(out var work))
+                {
+                    await ProcessProbeWorkItemAsync(work).ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                Common.LogHelper.Error(_logger, $"Unhandled error in probe event queue worker: {ex.Message}");
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _activeProbeWorkers);
+
+                if (_cancellationToken.IsCancellationRequested)
+                {
+                    CancelRemainingQueuesOnShutdown();
+                }
+                else if (!_probeQueue.IsEmpty)
+                {
+                    EnsureProbeWorkersRunning();
+                }
+            }
+        }
+
+        private async Task ProcessProbeWorkItemAsync(ProbeWorkItem work)
+        {
+            try
+            {
+                _cancellationToken.ThrowIfCancellationRequested();
+
+                var config = Plugin.GetSafeConfiguration();
+                if (!config.EnableAutoExtract)
+                {
+                    work.Lease?.Cancel();
+                    return;
+                }
+
+                ProcessResult result;
+                if (work.Lease != null)
+                {
+                    result = await _strmFileProcessor.ExecuteRemoteStageAsync(
+                        work.Item,
+                        config.ProcessingDelayMs,
+                        work.CanFallbackToLegacyJson,
+                        _cancellationToken).ConfigureAwait(false);
+                    work.Lease.Complete(result);
+                }
+                else
+                {
+                    result = await _strmFileProcessor
+                        .ProcessItemAsync(work.Item, config.ProcessingDelayMs, _cancellationToken)
+                        .ConfigureAwait(false);
+                }
+
+                LogProcessResult(work.Item.Name, result);
+            }
+            catch (OperationCanceledException)
+            {
+                work.Lease?.Cancel(_cancellationToken);
+                Common.LogHelper.Debug(_logger, $"Remote probing cancelled for {work.Item.Name}");
+            }
+            catch (Exception ex)
+            {
+                work.Lease?.Complete(ProcessResult.Failed);
+                Common.LogHelper.Error(_logger, $"Error probing item {work.Item.Name}: {ex.Message}");
+            }
+            finally
+            {
+                work.Lease?.Dispose();
+                ReleaseSlot(work.DedupKey);
+            }
+        }
+
+        private void CancelRemainingQueuesOnShutdown()
+        {
+            while (_localQueue.TryDequeue(out var item))
+            {
+                ReleaseSlot(StrmFileProcessor.GetDedupKey(item));
+            }
+
+            while (_probeQueue.TryDequeue(out var work))
+            {
+                work.Lease?.Cancel(_cancellationToken);
+                ReleaseSlot(work.DedupKey);
             }
         }
 

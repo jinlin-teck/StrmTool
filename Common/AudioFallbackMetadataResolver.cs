@@ -222,8 +222,8 @@ namespace StrmTool.Common
                     libraryOptions.PathInfos.Any(p =>
                         !string.IsNullOrWhiteSpace(p?.Path) &&
                         string.Equals(
-                            p.Path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                            parentDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                            MediaInfoJsonStore.TrimEndingDirectorySeparatorPreservingRoot(p.Path),
+                            MediaInfoJsonStore.TrimEndingDirectorySeparatorPreservingRoot(parentDir),
                             StringComparison.OrdinalIgnoreCase));
 
                 if (isParentLibraryRoot)

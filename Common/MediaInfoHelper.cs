@@ -1,6 +1,6 @@
-using System.Threading;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Library;
@@ -29,10 +29,13 @@ namespace StrmTool.Common
         /// <summary>
         /// 检查媒体项是否包含完整媒体流信息（对音频同时要求具备基础音乐元数据与同目录外挂歌词流，或已远程探测收敛）
         /// </summary>
-        public static bool HasCompleteMediaInfo(BaseItem? item, MediaInfoManager? mediaInfoManager = null)
+        public static bool HasCompleteMediaInfo(
+            BaseItem? item,
+            IMediaInfoBackupInspector? backupInspector = null,
+            ILibraryManager? libraryManager = null)
         {
             if (item == null) return false;
-            return HasCompleteMediaInfo(item, item.GetMediaStreams(), mediaInfoManager);
+            return HasCompleteMediaInfo(item, item.GetMediaStreams(), backupInspector, libraryManager);
         }
 
         /// <summary>
@@ -41,7 +44,8 @@ namespace StrmTool.Common
         public static bool HasCompleteMediaInfo(
             BaseItem? item,
             IEnumerable<MediaStream>? streams,
-            MediaInfoManager? mediaInfoManager = null)
+            IMediaInfoBackupInspector? backupInspector = null,
+            ILibraryManager? libraryManager = null)
         {
             if (item == null || !HasCompleteMediaInfo(streams))
             {
@@ -50,18 +54,18 @@ namespace StrmTool.Common
 
             if (item is Audio audio)
             {
-                if (AudioMetadataHelper.HasMissingLocalLyrics(audio, streams))
+                if (AudioMetadataHelper.HasMissingLocalLyrics(audio, streams, libraryManager))
                 {
                     return false;
                 }
 
-                if (AudioMetadataHelper.HasMissingAudioMetadata(audio))
+                if (AudioMetadataHelper.HasMissingAudioMetadata(audio, libraryManager))
                 {
                     // 若已执行过远程探测 (AudioTagsProbed == true) 且 JSON/目录兜底均无专辑与歌手可恢复，
                     // 说明源文件本身无标签且目录无法推断，视为已收敛终态，避免每日重复远程 ffprobe。
-                    if (mediaInfoManager != null &&
-                        mediaInfoManager.HasProbedAudioTagsInJson(audio) &&
-                        !mediaInfoManager.CanRestoreAudioMetadataFromJson(audio))
+                    if (backupInspector != null &&
+                        backupInspector.HasProbedAudioTagsInJson(audio) &&
+                        !backupInspector.CanRestoreAudioMetadataFromJson(audio))
                     {
                         return true;
                     }
@@ -79,7 +83,7 @@ namespace StrmTool.Common
         public static bool HasCompleteMediaInfo(IEnumerable<MediaStream>? streams)
         {
             if (streams == null) return false;
-            return streams.Any(s => s.Type == MediaStreamType.Video || s.Type == MediaStreamType.Audio);
+            return streams.Any(s => s != null && (s.Type == MediaStreamType.Video || s.Type == MediaStreamType.Audio));
         }
 
         /// <summary>
@@ -94,6 +98,11 @@ namespace StrmTool.Common
             {
                 foreach (var stream in streams)
                 {
+                    if (stream == null)
+                    {
+                        continue;
+                    }
+
                     if (stream.Type == MediaStreamType.Video)
                     {
                         hasVideo = true;
@@ -177,21 +186,22 @@ namespace StrmTool.Common
         /// <summary>
         /// 检查媒体项是否存在JSON文件
         /// </summary>
-        /// <param name="item">媒体项</param>
-        /// <param name="mediaInfoManager">媒体信息管理器</param>
-        /// <returns>是否存在JSON文件</returns>
-        public static bool HasJsonFile(BaseItem item, MediaInfoManager mediaInfoManager)
+        public static bool HasJsonFile(BaseItem item, IMediaInfoBackupInspector backupInspector)
         {
-            var jsonFilePath = mediaInfoManager.GetMediaInfoJsonPath(item);
+            var jsonFilePath = backupInspector.GetMediaInfoJsonPath(item);
             return System.IO.File.Exists(jsonFilePath);
         }
 
         /// <summary>
         /// 检查媒体项是否需要从JSON文件恢复
         /// </summary>
-        public static bool ShouldRestoreFromJson(BaseItem item, MediaInfoManager mediaInfoManager)
+        public static bool ShouldRestoreFromJson(
+            BaseItem item,
+            IMediaInfoBackupInspector backupInspector,
+            ILibraryManager? libraryManager = null)
         {
-            return !HasCompleteMediaInfo(item, mediaInfoManager) && HasJsonFile(item, mediaInfoManager);
+            return !HasCompleteMediaInfo(item, backupInspector, libraryManager) &&
+                   HasJsonFile(item, backupInspector);
         }
 
         /// <summary>
@@ -217,10 +227,14 @@ namespace StrmTool.Common
         /// <summary>
         /// 获取需要恢复且有JSON文件的STRM文件
         /// </summary>
-        public static List<BaseItem> GetStrmFilesNeedingRestoreWithJson(ILibraryManager libraryManager, MediaInfoManager mediaInfoManager)
+        public static List<BaseItem> GetStrmFilesNeedingRestoreWithJson(
+            ILibraryManager libraryManager,
+            IMediaInfoBackupInspector backupInspector)
         {
             var allStrmFiles = GetAllStrmFiles(libraryManager);
-            return allStrmFiles.Where(item => ShouldRestoreFromJson(item, mediaInfoManager)).ToList();
+            return allStrmFiles
+                .Where(item => ShouldRestoreFromJson(item, backupInspector, libraryManager))
+                .ToList();
         }
 
         /// <summary>
@@ -228,10 +242,12 @@ namespace StrmTool.Common
         /// </summary>
         public static List<BaseItem> GetStrmFilesWithCompleteMediaInfo(
             ILibraryManager libraryManager,
-            MediaInfoManager? mediaInfoManager = null)
+            IMediaInfoBackupInspector? backupInspector = null)
         {
             var allStrmFiles = GetAllStrmFiles(libraryManager);
-            return allStrmFiles.Where(item => HasCompleteMediaInfo(item, mediaInfoManager)).ToList();
+            return allStrmFiles
+                .Where(item => HasCompleteMediaInfo(item, backupInspector, libraryManager))
+                .ToList();
         }
 
         /// <summary>
@@ -243,7 +259,7 @@ namespace StrmTool.Common
                 return null;
 
             return streams
-                .Where(s => s.Type == MediaStreamType.Video && s.Width.HasValue && s.Height.HasValue)
+                .Where(s => s != null && s.Type == MediaStreamType.Video && s.Width.HasValue && s.Height.HasValue)
                 .OrderByDescending(s => (long)(s.Width ?? 0) * (s.Height ?? 0))
                 .FirstOrDefault();
         }

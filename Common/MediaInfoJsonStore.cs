@@ -44,14 +44,14 @@ namespace StrmTool.Common
         {
             public long LastWriteTicks { get; set; }
             public long Length { get; set; }
-            public bool MetadataLoaded { get; set; }
             public bool HasProbedAudioTags { get; set; }
             public AudioMetadataInfo? AudioMetadata { get; set; }
         }
 
         private const string AudioMetadataKey = "\"AudioMetadata\"";
         private const int TailReadBufferBytes = 16384;
-        private const int MaxCacheEntries = 4096;
+        private const int MaxCacheEntries = 32768;
+        private const int EvictBatchSize = MaxCacheEntries / 4;
         private const int PathLockStripes = 64;
 
         private static readonly StringComparer PathComparer = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
@@ -61,7 +61,49 @@ namespace StrmTool.Common
         private static readonly ConcurrentDictionary<string, JsonAudioTagCacheEntry> AudioTagCache =
             new ConcurrentDictionary<string, JsonAudioTagCacheEntry>(PathComparer);
 
+        private static readonly object CacheEvictLock = new object();
+        private static int _approxCacheCount;
+
         private static readonly SemaphoreSlim[] PathLocks = CreatePathLocks();
+
+        internal static StringComparer PathStringComparer => PathComparer;
+
+        internal static SemaphoreSlim GetPathLockForPath(string path)
+        {
+            return GetPathLock(path);
+        }
+
+        /// <summary>
+        /// 去除路径末尾的目录分隔符，但保留文件系统根路径自身的分隔符（如 Unix "/" 或 Windows "C:\"）
+        /// </summary>
+        internal static string TrimEndingDirectorySeparatorPreservingRoot(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                return path;
+            }
+
+            var root = Path.GetPathRoot(path);
+            if (!string.IsNullOrEmpty(root) &&
+                path.Length <= root.Length &&
+                string.Equals(path, root, StringComparison.OrdinalIgnoreCase))
+            {
+                return path;
+            }
+
+            var trimmed = path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            if (trimmed.Length == 0)
+            {
+                return Path.DirectorySeparatorChar.ToString();
+            }
+
+            if (!string.IsNullOrEmpty(root) && trimmed.Length < root.Length)
+            {
+                return root;
+            }
+
+            return trimmed;
+        }
 
         private readonly ILogger _logger;
         private readonly IJsonSerializer _jsonSerializer;
@@ -78,6 +120,7 @@ namespace StrmTool.Common
         public static void ClearCache()
         {
             AudioTagCache.Clear();
+            Interlocked.Exchange(ref _approxCacheCount, 0);
         }
 
         /// <summary>
@@ -85,12 +128,18 @@ namespace StrmTool.Common
         /// </summary>
         public string GetJsonPath(BaseItem item)
         {
+            if (item == null)
+            {
+                throw new ArgumentNullException(nameof(item));
+            }
+
             var mediaDirectory = Path.GetDirectoryName(item.Path);
             if (string.IsNullOrEmpty(mediaDirectory))
             {
                 string safeName = MakeSafeFilename(item.Name);
                 var tempPath = Path.Combine(Path.GetTempPath(), "StrmTool");
-                return Path.Combine(tempPath, $"{safeName}{CommonConfiguration.MediaInfoFileExtension}");
+                var suffix = item.InternalId > 0 ? $"_{item.InternalId}" : string.Empty;
+                return Path.Combine(tempPath, $"{safeName}{suffix}{CommonConfiguration.MediaInfoFileExtension}");
             }
 
             var mediaFileName = Path.GetFileNameWithoutExtension(item.Path);
@@ -228,7 +277,7 @@ namespace StrmTool.Common
                 }
 
                 File.Move(jsonFilePath, backupPath);
-                AudioTagCache.TryRemove(jsonFilePath, out _);
+                RemoveCacheEntry(jsonFilePath);
                 Common.LogHelper.Warn(
                     _logger,
                     $"Invalid media info JSON ({reason}) moved to: {backupPath}");
@@ -273,7 +322,7 @@ namespace StrmTool.Common
                 var fileInfo = new FileInfo(jsonFilePath);
                 if (!fileInfo.Exists)
                 {
-                    AudioTagCache.TryRemove(jsonFilePath, out _);
+                    RemoveCacheEntry(jsonFilePath);
                     return false;
                 }
 
@@ -282,8 +331,7 @@ namespace StrmTool.Common
 
                 if (AudioTagCache.TryGetValue(jsonFilePath, out var cached) &&
                     cached.LastWriteTicks == ticks &&
-                    cached.Length == length &&
-                    (cached.MetadataLoaded || !includeMetadata))
+                    cached.Length == length)
                 {
                     hasProbedAudioTags = cached.HasProbedAudioTags;
                     audioMetadata = includeMetadata ? cached.AudioMetadata : null;
@@ -292,15 +340,14 @@ namespace StrmTool.Common
 
                 var parsed = ReadAudioMetadata(jsonFilePath, length);
                 hasProbedAudioTags = parsed?.AudioTagsProbed == true;
-                audioMetadata = parsed;
+                audioMetadata = includeMetadata ? parsed : null;
 
                 StoreCacheEntry(jsonFilePath, new JsonAudioTagCacheEntry
                 {
                     LastWriteTicks = ticks,
                     Length = length,
-                    MetadataLoaded = includeMetadata,
                     HasProbedAudioTags = hasProbedAudioTags,
-                    AudioMetadata = includeMetadata ? parsed : null
+                    AudioMetadata = parsed
                 });
                 return true;
             }
@@ -323,7 +370,7 @@ namespace StrmTool.Common
                 var fileInfo = new FileInfo(jsonFilePath);
                 if (!fileInfo.Exists)
                 {
-                    AudioTagCache.TryRemove(jsonFilePath, out _);
+                    RemoveCacheEntry(jsonFilePath);
                     return;
                 }
 
@@ -331,7 +378,6 @@ namespace StrmTool.Common
                 {
                     LastWriteTicks = fileInfo.LastWriteTimeUtc.Ticks,
                     Length = fileInfo.Length,
-                    MetadataLoaded = audioMetadata != null,
                     HasProbedAudioTags = audioMetadata?.AudioTagsProbed == true,
                     AudioMetadata = audioMetadata
                 });
@@ -350,19 +396,16 @@ namespace StrmTool.Common
 
             if (fileLength <= TailReadBufferBytes)
             {
-                objectJson = ExtractJsonObjectAfterKey(File.ReadAllText(jsonFilePath), AudioMetadataKey);
+                TryExtractJsonObjectOrNullAfterKey(File.ReadAllText(jsonFilePath), AudioMetadataKey, out objectJson);
             }
             else
             {
                 var tailText = ReadFileTailText(jsonFilePath, fileLength, TailReadBufferBytes);
-                objectJson = tailText.IndexOf(AudioMetadataKey, StringComparison.Ordinal) >= 0
-                    ? ExtractJsonObjectAfterKey(tailText, AudioMetadataKey)
-                    : null;
-
-                // 键不在尾部窗口内，或对象跨越了窗口边界（例如超大的标签集合），回退到整文件解析
-                if (objectJson == null)
+                if (!TryExtractJsonObjectOrNullAfterKey(tailText, AudioMetadataKey, out objectJson))
                 {
-                    objectJson = ExtractJsonObjectAfterKey(File.ReadAllText(jsonFilePath), AudioMetadataKey);
+                    // 尾部窗口未命中（如旧版无该字段、JSON 字段顺序被重排到大封面之前、或对象跨越窗口边界），
+                    // 统一回退到全文解析；解析结果（含 null）随后会按 (LastWriteTicks, Length) 持久缓存。
+                    TryExtractJsonObjectOrNullAfterKey(File.ReadAllText(jsonFilePath), AudioMetadataKey, out objectJson);
                 }
             }
 
@@ -386,12 +429,56 @@ namespace StrmTool.Common
 
         private static void StoreCacheEntry(string jsonFilePath, JsonAudioTagCacheEntry entry)
         {
-            if (AudioTagCache.Count >= MaxCacheEntries && !AudioTagCache.ContainsKey(jsonFilePath))
+            bool added = false;
+            AudioTagCache.AddOrUpdate(
+                jsonFilePath,
+                _ =>
+                {
+                    added = true;
+                    return entry;
+                },
+                (_, __) => entry);
+
+            if (!added)
             {
-                AudioTagCache.Clear();
+                return;
             }
 
-            AudioTagCache[jsonFilePath] = entry;
+            if (Interlocked.Increment(ref _approxCacheCount) <= MaxCacheEntries)
+            {
+                return;
+            }
+
+            lock (CacheEvictLock)
+            {
+                if (Volatile.Read(ref _approxCacheCount) <= MaxCacheEntries)
+                {
+                    return;
+                }
+
+                int removed = 0;
+                foreach (var key in AudioTagCache.Keys)
+                {
+                    if (AudioTagCache.TryRemove(key, out _))
+                    {
+                        removed++;
+                        if (removed >= EvictBatchSize)
+                        {
+                            break;
+                        }
+                    }
+                }
+
+                Interlocked.Add(ref _approxCacheCount, -removed);
+            }
+        }
+
+        private static void RemoveCacheEntry(string jsonFilePath)
+        {
+            if (AudioTagCache.TryRemove(jsonFilePath, out _))
+            {
+                Interlocked.Decrement(ref _approxCacheCount);
+            }
         }
 
         private static SemaphoreSlim[] CreatePathLocks()
@@ -436,42 +523,50 @@ namespace StrmTool.Common
             return Encoding.UTF8.GetString(buffer, 0, totalRead);
         }
 
-        private static string? ExtractJsonObjectAfterKey(string text, string keyToken)
+        private static bool TryExtractJsonObjectOrNullAfterKey(string text, string keyToken, out string? objectJson)
         {
+            objectJson = null;
             int keyIndex = text.LastIndexOf(keyToken, StringComparison.Ordinal);
             if (keyIndex < 0)
             {
-                return null;
+                return false;
             }
 
             int colonIndex = text.IndexOf(':', keyIndex + keyToken.Length);
             if (colonIndex < 0)
             {
-                return null;
+                return false;
             }
 
-            int startBrace = -1;
+            int valueIndex = -1;
             for (int i = colonIndex + 1; i < text.Length; i++)
             {
-                char c = text[i];
-                if (char.IsWhiteSpace(c))
+                if (!char.IsWhiteSpace(text[i]))
                 {
-                    continue;
+                    valueIndex = i;
+                    break;
                 }
-
-                if (c == '{')
-                {
-                    startBrace = i;
-                }
-
-                break;
             }
 
-            if (startBrace < 0)
+            if (valueIndex < 0)
             {
-                return null;
+                return false;
             }
 
+            // 明确匹配 "AudioMetadata": null
+            if (text[valueIndex] == 'n' &&
+                valueIndex + 4 <= text.Length &&
+                string.CompareOrdinal(text, valueIndex, "null", 0, 4) == 0)
+            {
+                return true;
+            }
+
+            if (text[valueIndex] != '{')
+            {
+                return false;
+            }
+
+            int startBrace = valueIndex;
             int depth = 0;
             bool inString = false;
             bool escaped = false;
@@ -510,18 +605,19 @@ namespace StrmTool.Common
                     depth--;
                     if (depth == 0)
                     {
-                        return text.Substring(startBrace, i - startBrace + 1);
+                        objectJson = text.Substring(startBrace, i - startBrace + 1);
+                        return true;
                     }
                 }
             }
 
-            return null;
+            return false;
         }
 
         /// <summary>
         /// 使文件名安全，替换无效字符（单遍扫描）
         /// </summary>
-        private static string MakeSafeFilename(string? name)
+        internal static string MakeSafeFilename(string? name)
         {
             if (string.IsNullOrEmpty(name))
             {

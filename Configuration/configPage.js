@@ -3,6 +3,8 @@ define([], function () {
 
     // 必须与 CommonConfiguration.PluginId 保持一致
     var pluginId = "a1b2c3d4-e5f6-7890-abcd-ef1234567891";
+    var defaultProcessingDelayMs = 2000;
+    var defaultMaxConcurrency = 3;
     var submitting = false;
 
     function clamp(value, min, max, fallbackValue) {
@@ -17,8 +19,10 @@ define([], function () {
         Dashboard.showLoadingMsg();
         ApiClient.getPluginConfiguration(pluginId).then(function (config) {
             view.querySelector("#EnableAutoExtract").checked = !!config.EnableAutoExtract;
-            view.querySelector("#ProcessingDelayMs").value = Number(config.ProcessingDelayMs || 0);
-            view.querySelector("#MaxConcurrency").value = Number(config.MaxConcurrency || 1);
+            view.querySelector("#ProcessingDelayMs").value =
+                config.ProcessingDelayMs != null ? Number(config.ProcessingDelayMs) : defaultProcessingDelayMs;
+            view.querySelector("#MaxConcurrency").value =
+                config.MaxConcurrency != null ? Number(config.MaxConcurrency) : defaultMaxConcurrency;
             Dashboard.hideLoadingMsg();
         }, function () {
             Dashboard.hideLoadingMsg();
@@ -26,22 +30,27 @@ define([], function () {
     }
 
     function onSubmit(e) {
+        var form = this;
+        if (form.reportValidity && !form.reportValidity()) {
+            e.preventDefault();
+            e.stopPropagation();
+            return false;
+        }
+
         e.preventDefault();
         e.stopPropagation();
 
-        // form submit 与按钮 click 可能同时触发，这里做重入保护，避免重复保存
         if (submitting) {
             return false;
         }
 
-        var form = this;
-        var processingDelayMs = parseInt(form.querySelector("#ProcessingDelayMs").value || "0", 10);
-        var maxConcurrency = parseInt(form.querySelector("#MaxConcurrency").value || "1", 10);
+        var processingDelayMs = parseInt(form.querySelector("#ProcessingDelayMs").value, 10);
+        var maxConcurrency = parseInt(form.querySelector("#MaxConcurrency").value, 10);
 
         var config = {
             EnableAutoExtract: form.querySelector("#EnableAutoExtract").checked,
-            ProcessingDelayMs: clamp(processingDelayMs, 0, 20000, 0),
-            MaxConcurrency: clamp(maxConcurrency, 1, 10, 1)
+            ProcessingDelayMs: clamp(processingDelayMs, 0, 20000, defaultProcessingDelayMs),
+            MaxConcurrency: clamp(maxConcurrency, 1, 10, defaultMaxConcurrency)
         };
 
         submitting = true;

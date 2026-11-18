@@ -4,7 +4,7 @@
 
 **StrmTool** 是一款专为 Emby 媒体服务器打造的 `.strm` 媒体增强插件。它通过预提取媒体技术信息（音视频编码、分辨率、字幕、图片、音乐标签与外挂歌词等）并导出为本地 JSON 备份，大幅提升网盘/远程流媒体的媒体库展示效果与点播起播速度；媒体信息丢失时还可从备份一键恢复。
 
-> **当前版本**：`v2.7.2`（适用 **Emby 4.8+**；已在 4.8.11.0 与 4.9.1.80 上测试通过，其他版本请自行测试。如果你使用的是 Jellyfin，请前往 [StrmTool-Jellyfin](https://github.com/jinlin-teck/StrmTool-Jellyfin)——Jellyfin 版已独立为单独仓库，基于 .NET 10 / Jellyfin 12 构建，本仓库不再更新 Jellyfin 版本）
+> **当前版本**：`v2.7.3`（适用 **Emby 4.8+**；已在 4.8.11.0 与 4.9.1.80 上测试通过，其他版本请自行测试。如果你使用的是 Jellyfin，请前往 [StrmTool-Jellyfin](https://github.com/jinlin-teck/StrmTool-Jellyfin)——Jellyfin 版已独立为单独仓库，基于 .NET 10 / Jellyfin 12 构建，本仓库不再更新 Jellyfin 版本）
 >
 > **推荐搭配**：如果你还需要从 OpenList / Alist 网盘批量生成 `.strm` 文件，推荐搭配本人的另一个开源项目 [openlist-strm](https://github.com/jinlin-teck/openlist-strm)（带 WebUI 的轻量级 `.strm` 生成服务），在 Emby 上获得完整的流媒体播放体验。
 

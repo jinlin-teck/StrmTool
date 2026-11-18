@@ -17,6 +17,9 @@ namespace StrmTool.Common
     /// </summary>
     public static class AudioMetadataHelper
     {
+        private const int MinValidProductionYear = 1800;
+        private const int MaxValidProductionYear = 9999;
+
         /// <summary>
         /// 判断条目是否为音乐媒体库（ContentType == "music"）中的独立音频曲目
         /// （排除电影/剧集文件夹附带的 ThemeSong 等 Extra 音频，以及非音乐媒体库中的音频）
@@ -42,7 +45,22 @@ namespace StrmTool.Common
         }
 
         /// <summary>
-        /// 检查音乐库音频项是否缺少核心音乐元数据（专辑、艺术家或专辑艺术家）
+        /// 纯数据检查：判断音频实体自身的核心音乐字段（专辑、艺术家、专辑艺术家）是否缺失（不考虑 IsLocked）
+        /// </summary>
+        public static bool HasIncompleteCoreMetadata(Audio? audio)
+        {
+            if (audio == null)
+            {
+                return true;
+            }
+
+            return string.IsNullOrWhiteSpace(audio.Album) ||
+                   audio.Artists == null || audio.Artists.Length == 0 ||
+                   audio.AlbumArtists == null || audio.AlbumArtists.Length == 0;
+        }
+
+        /// <summary>
+        /// 检查音乐库音频项是否需要补充核心音乐元数据（已锁定条目视为无需修改）
         /// </summary>
         public static bool HasMissingAudioMetadata(BaseItem? item, ILibraryManager? libraryManager = null)
         {
@@ -57,9 +75,7 @@ namespace StrmTool.Common
                 return false;
             }
 
-            return string.IsNullOrWhiteSpace(audio.Album) ||
-                   audio.Artists == null || audio.Artists.Length == 0 ||
-                   audio.AlbumArtists == null || audio.AlbumArtists.Length == 0;
+            return HasIncompleteCoreMetadata(audio);
         }
 
         /// <summary>
@@ -130,8 +146,12 @@ namespace StrmTool.Common
                         (composers ?? Enumerable.Empty<string>()).Concat(writers));
                 }
 
-                int? year = mediaInfo.ProductionYear ?? mediaInfo.PremiereDate?.Year;
+                int? rawYear = mediaInfo.ProductionYear ?? mediaInfo.PremiereDate?.Year;
                 var providerIds = MetadataNormalizer.NormalizeProviderIds(mediaInfo.ProviderIds);
+                DateTimeOffset? validPremiereDate = mediaInfo.PremiereDate.HasValue &&
+                                                    IsValidProductionYear(mediaInfo.PremiereDate.Value.Year)
+                    ? mediaInfo.PremiereDate
+                    : null;
 
                 probed = new AudioMetadataInfo
                 {
@@ -145,8 +165,8 @@ namespace StrmTool.Common
                     Genres = MetadataNormalizer.NormalizeList(mediaInfo.Genres),
                     TrackNumber = mediaInfo.IndexNumber > 0 ? mediaInfo.IndexNumber : null,
                     DiscNumber = mediaInfo.ParentIndexNumber > 0 ? mediaInfo.ParentIndexNumber : null,
-                    ProductionYear = (year.HasValue && year.Value > 0 && year.Value <= 9999) ? year : null,
-                    PremiereDate = mediaInfo.PremiereDate,
+                    ProductionYear = rawYear.HasValue && IsValidProductionYear(rawYear.Value) ? rawYear : null,
+                    PremiereDate = validPremiereDate,
                     ProviderIds = providerIds
                 };
             }
@@ -222,7 +242,8 @@ namespace StrmTool.Common
             }
 
             var fallback = AudioFallbackMetadataResolver.Resolve(audio, libraryManager);
-            bool markProbed = audioTagsProbed || !HasMissingAudioMetadata(audio);
+            // 被锁定的缺字段曲目不得在未实际探测时误标为 AudioTagsProbed = true，确保解锁后仍可补探
+            bool markProbed = audioTagsProbed || (!audio.IsLocked && !HasIncompleteCoreMetadata(audio));
 
             var fileNameWithoutExt = !string.IsNullOrWhiteSpace(audio.Path)
                 ? Path.GetFileNameWithoutExtension(audio.Path)
@@ -252,8 +273,12 @@ namespace StrmTool.Common
                 Genres = MetadataNormalizer.NormalizeList(audio.Genres),
                 TrackNumber = audio.IndexNumber ?? fallback.TrackNumber,
                 DiscNumber = audio.ParentIndexNumber ?? fallback.DiscNumber,
-                ProductionYear = audio.ProductionYear,
-                PremiereDate = audio.PremiereDate,
+                ProductionYear = audio.ProductionYear.HasValue && IsValidProductionYear(audio.ProductionYear.Value)
+                    ? audio.ProductionYear
+                    : null,
+                PremiereDate = audio.PremiereDate.HasValue && IsValidProductionYear(audio.PremiereDate.Value.Year)
+                    ? audio.PremiereDate
+                    : null,
                 ProviderIds = MetadataNormalizer.NormalizeProviderIds(audio.ProviderIds)
             };
         }
@@ -302,21 +327,18 @@ namespace StrmTool.Common
             };
         }
 
-        private static bool ApplyEffectiveMetadata(
+        private static void ApplyEffectiveMetadata(
             Audio audio,
             AudioMetadataInfo effective)
         {
             if (audio == null || effective == null || audio.IsLocked)
             {
-                return false;
+                return;
             }
-
-            bool changed = false;
 
             if (ShouldUpdateAudioTitle(audio, effective.Title))
             {
                 audio.Name = effective.Title;
-                changed = true;
             }
 
             if (!audio.IsFieldLocked(MetadataFields.SortName) &&
@@ -324,83 +346,75 @@ namespace StrmTool.Common
                 string.IsNullOrWhiteSpace(audio.SortName))
             {
                 audio.SortName = effective.SortName;
-                changed = true;
             }
 
             if (!string.IsNullOrWhiteSpace(effective.Album) &&
                 string.IsNullOrWhiteSpace(audio.Album))
             {
                 audio.Album = effective.Album;
-                changed = true;
             }
 
             if (effective.Artists != null && effective.Artists.Count > 0 &&
                 (audio.Artists == null || audio.Artists.Length == 0))
             {
                 audio.SetArtists(effective.Artists);
-                changed = true;
             }
 
             if (effective.AlbumArtists != null && effective.AlbumArtists.Count > 0 &&
                 (audio.AlbumArtists == null || audio.AlbumArtists.Length == 0))
             {
                 audio.SetAlbumArtists(effective.AlbumArtists);
-                changed = true;
             }
 
             if (effective.Composers != null && effective.Composers.Count > 0 &&
                 (audio.Composers == null || audio.Composers.Length == 0))
             {
                 audio.SetComposers(effective.Composers);
-                changed = true;
             }
 
             if (!audio.IsFieldLocked(MetadataFields.Genres) &&
                 effective.Genres != null && effective.Genres.Count > 0 &&
+                (audio.Genres == null || audio.Genres.Length == 0) &&
                 (audio.GenreItems == null || audio.GenreItems.Length == 0))
             {
                 audio.SetGenres(effective.Genres);
-                changed = true;
             }
 
             if (effective.TrackNumber.HasValue && !audio.IndexNumber.HasValue)
             {
                 audio.IndexNumber = effective.TrackNumber;
-                changed = true;
             }
 
             if (effective.DiscNumber.HasValue && !audio.ParentIndexNumber.HasValue)
             {
                 audio.ParentIndexNumber = effective.DiscNumber;
-                changed = true;
             }
 
             // Emby 的 MetadataFields 未提供 ProductionYear / PremiereDate 常量，这里保持「只补缺失值」的语义
-            if (effective.ProductionYear.HasValue && effective.ProductionYear.Value > 0 && effective.ProductionYear.Value <= 9999)
+            if (effective.ProductionYear.HasValue && IsValidProductionYear(effective.ProductionYear.Value))
             {
                 int year = effective.ProductionYear.Value;
                 if (!audio.ProductionYear.HasValue)
                 {
                     audio.ProductionYear = year;
-                    changed = true;
                 }
 
                 if (!audio.PremiereDate.HasValue)
                 {
-                    audio.PremiereDate = effective.PremiereDate ??
-                                         new DateTimeOffset(new DateTime(year, 1, 1, 0, 0, 0, DateTimeKind.Utc));
-                    changed = true;
+                    audio.PremiereDate = effective.PremiereDate.HasValue && IsValidProductionYear(effective.PremiereDate.Value.Year)
+                        ? effective.PremiereDate
+                        : new DateTimeOffset(new DateTime(year, 1, 1, 0, 0, 0, DateTimeKind.Utc));
                 }
             }
-            else if (effective.PremiereDate.HasValue && !audio.PremiereDate.HasValue)
+            else if (effective.PremiereDate.HasValue &&
+                     IsValidProductionYear(effective.PremiereDate.Value.Year) &&
+                     !audio.PremiereDate.HasValue)
             {
                 audio.PremiereDate = effective.PremiereDate;
                 if (!audio.ProductionYear.HasValue)
                 {
                     audio.ProductionYear = effective.PremiereDate.Value.Year;
                 }
-
-                changed = true;
             }
 
             if (effective.ProviderIds != null && effective.ProviderIds.Count > 0)
@@ -412,12 +426,14 @@ namespace StrmTool.Common
                         string.IsNullOrWhiteSpace(audio.GetProviderId(kvp.Key)))
                     {
                         audio.SetProviderId(kvp.Key, kvp.Value);
-                        changed = true;
                     }
                 }
             }
+        }
 
-            return changed;
+        private static bool IsValidProductionYear(int year)
+        {
+            return year >= MinValidProductionYear && year <= MaxValidProductionYear;
         }
 
         private static bool ShouldUpdateAudioTitle(Audio audio, string? candidateTitle)

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -20,9 +19,9 @@ namespace StrmTool
 {
     public class Plugin : BasePlugin<PluginConfiguration>, IHasThumbImage, IHasWebPages, IDisposable
     {
+        private const string PluginDisplayName = "StrmTool";
         private static readonly object _lock = new object();
         public static Plugin? Instance { get; private set; }
-        public static string PluginName => "StrmTool";
 
         public static PluginConfiguration GetSafeConfiguration()
         {
@@ -33,6 +32,7 @@ namespace StrmTool
                 {
                     return new PluginConfiguration();
                 }
+
                 return config;
             }
             catch (Exception ex)
@@ -51,7 +51,7 @@ namespace StrmTool
         private readonly ILogger? _logger;
         private ItemAddedEventHandler? _eventHandler;
         private ILibraryManager? _libraryManager;
-        private readonly CancellationTokenSource? _cancellationTokenSource;
+        private readonly CancellationTokenSource _cancellationTokenSource;
         private bool _disposed;
 
         public Plugin(
@@ -68,6 +68,7 @@ namespace StrmTool
             {
                 Instance = this;
             }
+
             _logger = logger;
             _libraryManager = libraryManager;
             _cancellationTokenSource = new CancellationTokenSource();
@@ -88,7 +89,7 @@ namespace StrmTool
                 var strmFileProcessor = new StrmFileProcessor(
                     logger, libraryManager, itemRepository, mediaProbeManager, mediaInfoManager);
                 _eventHandler = new ItemAddedEventHandler(
-                    logger, mediaInfoManager, strmFileProcessor, _cancellationTokenSource);
+                    logger, libraryManager, mediaInfoManager, strmFileProcessor, _cancellationTokenSource.Token);
                 libraryManager.ItemAdded += _eventHandler.OnItemAdded;
 
                 Common.LogHelper.Info(logger, "Item added event handler registered at plugin level");
@@ -105,7 +106,7 @@ namespace StrmTool
         /// </summary>
         private void LogConfiguration(ILogger logger)
         {
-            var token = _cancellationTokenSource?.Token ?? CancellationToken.None;
+            var token = _cancellationTokenSource.Token;
             Task.Run(async () =>
             {
                 try
@@ -128,7 +129,7 @@ namespace StrmTool
         /// <summary>
         /// 清理事件处理器，防止内存泄漏
         /// </summary>
-        public void UnregisterEventHandlers()
+        private void UnregisterEventHandlers()
         {
             try
             {
@@ -137,15 +138,17 @@ namespace StrmTool
                     _libraryManager.ItemAdded -= _eventHandler.OnItemAdded;
                 }
 
-                if (_cancellationTokenSource != null && !_cancellationTokenSource.IsCancellationRequested)
+                if (!_cancellationTokenSource.IsCancellationRequested)
                 {
                     _cancellationTokenSource.Cancel();
                 }
-
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"StrmTool: Error unregistering event handlers: {ex.Message}");
+                if (_logger != null)
+                {
+                    Common.LogHelper.Error(_logger, $"Error unregistering event handlers: {ex.Message}");
+                }
             }
             finally
             {
@@ -175,7 +178,15 @@ namespace StrmTool
             if (disposing)
             {
                 UnregisterEventHandlers();
-                _cancellationTokenSource?.Dispose();
+                _cancellationTokenSource.Dispose();
+
+                lock (_lock)
+                {
+                    if (ReferenceEquals(Instance, this))
+                    {
+                        Instance = null;
+                    }
+                }
             }
 
             _disposed = true;
@@ -193,7 +204,7 @@ namespace StrmTool
         public override string Description =>
             "STRM file media info extraction and backup/restore functionality.";
 
-        public override string Name => PluginName;
+        public override string Name => PluginDisplayName;
 
         public override Guid Id => CommonConfiguration.PluginId;
 

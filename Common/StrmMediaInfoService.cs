@@ -17,6 +17,11 @@ namespace StrmTool.Common
 {
     public class StrmMediaInfoService
     {
+        /// <summary>
+        /// .strm 文本文件最大允许读取字节数（64 KB），防止误命名为 .strm 的大体积二进制文件导致 ReadLineAsync OOM
+        /// </summary>
+        private const long MaxStrmFileBytes = 64 * 1024;
+
         private readonly ILogger _logger;
         private readonly ILibraryManager _libraryManager;
         private readonly IMediaProbeManager _mediaProbeManager;
@@ -43,7 +48,7 @@ namespace StrmTool.Common
                 var strmContent = await ReadStrmSourcePathAsync(item.Path, _logger, cancellationToken).ConfigureAwait(false);
                 if (string.IsNullOrWhiteSpace(strmContent))
                 {
-                    Common.LogHelper.Warn(_logger, $"STRM file is empty: {item.Path}");
+                    Common.LogHelper.Warn(_logger, $"STRM file is empty or invalid: {item.Path}");
                     return new List<MediaStream>();
                 }
 
@@ -57,15 +62,17 @@ namespace StrmTool.Common
                             Protocol = GetProtocolFromPath(strmContent),
                         },
                         MediaType = isAudio ? DlnaProfileType.Audio : DlnaProfileType.Video,
-                        ExtractChapters = false,
+                        ExtractChapters = !isAudio,
                     },
                     cancellationToken).ConfigureAwait(false);
 
                 if (mediaInfo?.MediaStreams != null && mediaInfo.MediaStreams.Count > 0)
                 {
-                    var streamsToSave = MediaStreamMerger.PrepareMediaStreamsForSave(item, mediaInfo.MediaStreams);
+                    var streamsToSave = MediaStreamMerger.PrepareMediaStreamsForSave(
+                        item, mediaInfo.MediaStreams, _libraryManager);
                     _itemRepository.SaveMediaStreams(item.InternalId, streamsToSave, cancellationToken);
 
+                    SaveProbedChaptersIfAbsent(item, isAudio, mediaInfo);
                     MediaInfoHelper.ApplyMediaSourceInfo(item, mediaInfo, _libraryManager, cancellationToken);
 
                     Common.LogHelper.Debug(_logger, $"Successfully saved {streamsToSave.Count} media streams and updated item properties for {fileName}");
@@ -83,6 +90,23 @@ namespace StrmTool.Common
             {
                 Common.LogHelper.ErrorException(_logger, $"Error probing STRM content for {fileName}", ex);
                 return new List<MediaStream>();
+            }
+        }
+
+        private void SaveProbedChaptersIfAbsent(BaseItem item, bool isAudio, MediaInfo mediaInfo)
+        {
+            if (isAudio ||
+                !(item is Video) ||
+                mediaInfo.Chapters == null ||
+                mediaInfo.Chapters.Length == 0)
+            {
+                return;
+            }
+
+            var existingChapters = _itemRepository.GetChapters(item);
+            if (existingChapters == null || existingChapters.Count == 0)
+            {
+                _itemRepository.SaveChapters(item.InternalId, new List<ChapterInfo>(mediaInfo.Chapters));
             }
         }
 
@@ -117,9 +141,18 @@ namespace StrmTool.Common
         {
             try
             {
-                if (!File.Exists(strmFilePath))
+                var fileInfo = new FileInfo(strmFilePath);
+                if (!fileInfo.Exists)
                 {
                     Common.LogHelper.Warn(logger, $"STRM file not found: {strmFilePath}");
+                    return string.Empty;
+                }
+
+                if (fileInfo.Length > MaxStrmFileBytes)
+                {
+                    Common.LogHelper.Warn(
+                        logger,
+                        $"STRM file exceeds maximum allowed size ({fileInfo.Length} bytes > {MaxStrmFileBytes} bytes), skipping: {strmFilePath}");
                     return string.Empty;
                 }
 
@@ -133,8 +166,8 @@ namespace StrmTool.Common
                         break;
                     }
 
-                    // 跳过空行与以 # 开头的注释行，其余内容都交给 Emby 判断（URL / 本地路径 / UNC / 相对路径）
-                    var sourcePath = line.Trim();
+                    // 跳过空行与以 # 开头的注释行，并剥离可能残留的零宽 BOM (\uFEFF)，避免协议前缀匹配失效
+                    var sourcePath = line.Trim().Trim('\uFEFF');
                     if (!string.IsNullOrWhiteSpace(sourcePath) &&
                         !sourcePath.StartsWith("#", StringComparison.Ordinal))
                     {

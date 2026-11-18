@@ -17,7 +17,7 @@ namespace StrmTool.Common
     /// 媒体信息导出/恢复的批量编排与门面。
     /// JSON 读写、导出与恢复分别由 MediaInfoJsonStore / MediaInfoExporter / MediaInfoRestorer 承担。
     /// </summary>
-    public class MediaInfoManager
+    public class MediaInfoManager : IMediaInfoBackupInspector
     {
         private readonly ILogger _logger;
         private readonly ILibraryManager _libraryManager;
@@ -48,6 +48,7 @@ namespace StrmTool.Common
         public static void ClearCachedState()
         {
             MediaInfoJsonStore.ClearCache();
+            StrmFileProcessor.ClearInFlightState();
         }
 
         /// <summary>
@@ -250,7 +251,8 @@ namespace StrmTool.Common
                     return false;
                 }
 
-                var mergedStreams = MediaStreamMerger.PrepareMediaStreamsForSave(item, currentStreams);
+                var mergedStreams = MediaStreamMerger.PrepareMediaStreamsForSave(
+                    item, currentStreams, _libraryManager, existingStreams: currentStreams);
                 _itemRepository.SaveMediaStreams(item.InternalId, mergedStreams, cancellationToken);
                 Common.LogHelper.Info(_logger, $"Merged local lyrics for {item.Name}");
                 return true;

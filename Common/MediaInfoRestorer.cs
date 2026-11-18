@@ -20,9 +20,16 @@ namespace StrmTool.Common
     public class MediaInfoRestorer
     {
         /// <summary>
-        /// 音频内嵌封面可能使用的扩展名（恢复时清理旧格式残留）
+        /// 音频内嵌封面允许使用的安全图片扩展名白名单（对齐 Emby 支持的图片扩展名）
         /// </summary>
-        private static readonly string[] ImageExtensions = new[] { ".jpg", ".jpeg", ".png", ".webp", ".tbn" };
+        internal static readonly string[] SupportedAudioImageExtensions = new[]
+        {
+            ".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif", ".tbn"
+        };
+
+        private static readonly HashSet<string> AllowedImageExtensionSet = new HashSet<string>(
+            SupportedAudioImageExtensions,
+            StringComparer.OrdinalIgnoreCase);
 
         private readonly ILogger _logger;
         private readonly ILibraryManager _libraryManager;
@@ -139,7 +146,8 @@ namespace StrmTool.Common
             var streams = first.MediaSourceInfo.MediaStreams;
             if (streams == null ||
                 !streams.Any(stream =>
-                    stream.Type == MediaStreamType.Video || stream.Type == MediaStreamType.Audio))
+                    stream != null &&
+                    (stream.Type == MediaStreamType.Video || stream.Type == MediaStreamType.Audio)))
             {
                 return "MediaSourceInfo.MediaStreams has no video or audio stream";
             }
@@ -173,7 +181,10 @@ namespace StrmTool.Common
             if (mediaSourceWithChapters.MediaSourceInfo?.MediaStreams != null)
             {
                 var streamsToSave = MediaStreamMerger.PrepareMediaStreamsForSave(
-                    item, mediaSourceWithChapters.MediaSourceInfo.MediaStreams);
+                    item,
+                    mediaSourceWithChapters.MediaSourceInfo.MediaStreams,
+                    _libraryManager,
+                    untrustedIncomingPaths: true);
                 _itemRepository.SaveMediaStreams(item.InternalId, streamsToSave, cancellationToken);
             }
         }
@@ -189,20 +200,35 @@ namespace StrmTool.Common
             try
             {
                 var imageBytes = Convert.FromBase64String(mediaSourceWithChapters.EmbeddedImage);
+                if (imageBytes.Length == 0)
+                {
+                    return;
+                }
+
                 var mediaDirectory = Path.GetDirectoryName(item.Path);
                 var audioImageDir = Path.Combine(
                     string.IsNullOrWhiteSpace(mediaDirectory) ? Path.GetTempPath() : mediaDirectory,
                     ".metadata");
                 Directory.CreateDirectory(audioImageDir);
 
-                var baseName = Path.GetFileNameWithoutExtension(item.Path);
+                var baseName = GetAudioImageBaseName(item);
                 var extension = NormalizeImageExtension(mediaSourceWithChapters.EmbeddedImageExtension);
                 var imagePath = Path.Combine(audioImageDir, $"{baseName}{extension}");
 
-                // 清理同 basename 的其他扩展名残留，避免新旧封面并存导致 Emby 选中旧图
-                CleanupOtherImageExtensions(audioImageDir, baseName, extension);
+                var gate = MediaInfoJsonStore.GetPathLockForPath(Path.Combine(audioImageDir, baseName));
+                await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    // 清理同 basename 的其他扩展名残留，避免新旧封面并存导致 Emby 选中旧图
+                    CleanupOtherImageExtensions(audioImageDir, baseName, extension);
+                    await AtomicFile.WriteAllBytesAsync(imagePath, imageBytes, cancellationToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    gate.Release();
+                }
 
-                await AtomicFile.WriteAllBytesAsync(imagePath, imageBytes, cancellationToken).ConfigureAwait(false);
+                BindRestoredPrimaryImageIfNeeded(item, audioImageDir, baseName, imagePath);
                 Common.LogHelper.Debug(_logger, $"Restored embedded image for audio file {item.Name}");
             }
             catch (OperationCanceledException)
@@ -215,9 +241,59 @@ namespace StrmTool.Common
             }
         }
 
+        internal static string GetAudioImageBaseName(BaseItem item)
+        {
+            var baseName = !string.IsNullOrWhiteSpace(item.Path)
+                ? Path.GetFileNameWithoutExtension(item.Path)
+                : null;
+            return string.IsNullOrWhiteSpace(baseName)
+                ? MediaInfoJsonStore.MakeSafeFilename(item.Name)
+                : baseName;
+        }
+
+        private static void BindRestoredPrimaryImageIfNeeded(
+            BaseItem item, string audioImageDir, string baseName, string restoredImagePath)
+        {
+            var existingPrimary = item.GetImageInfo(ImageType.Primary, 0);
+            bool shouldBind = existingPrimary == null ||
+                              string.IsNullOrWhiteSpace(existingPrimary.Path) ||
+                              !File.Exists(existingPrimary.Path) ||
+                              IsManagedAudioMetadataImage(existingPrimary.Path, audioImageDir, baseName);
+            if (!shouldBind)
+            {
+                return;
+            }
+
+            var fileInfo = new FileInfo(restoredImagePath);
+            var lastModified = fileInfo.Exists
+                ? new DateTimeOffset(fileInfo.LastWriteTimeUtc, TimeSpan.Zero)
+                : DateTimeOffset.UtcNow;
+
+            item.SetImage(
+                new ItemImageInfo
+                {
+                    Path = restoredImagePath,
+                    Type = ImageType.Primary,
+                    DateModified = lastModified
+                },
+                0,
+                false);
+        }
+
+        private static bool IsManagedAudioMetadataImage(string imagePath, string audioImageDir, string baseName)
+        {
+            var dir = Path.GetDirectoryName(imagePath);
+            var nameNoExt = Path.GetFileNameWithoutExtension(imagePath);
+            return !string.IsNullOrEmpty(dir) &&
+                   MediaInfoJsonStore.PathStringComparer.Equals(
+                       MediaInfoJsonStore.TrimEndingDirectorySeparatorPreservingRoot(dir),
+                       MediaInfoJsonStore.TrimEndingDirectorySeparatorPreservingRoot(audioImageDir)) &&
+                   MediaInfoJsonStore.PathStringComparer.Equals(nameNoExt, baseName);
+        }
+
         private void CleanupOtherImageExtensions(string directory, string baseName, string extensionToKeep)
         {
-            foreach (var extension in ImageExtensions)
+            foreach (var extension in SupportedAudioImageExtensions)
             {
                 if (string.Equals(extension, extensionToKeep, StringComparison.OrdinalIgnoreCase))
                 {
@@ -240,7 +316,7 @@ namespace StrmTool.Common
             }
         }
 
-        private static string NormalizeImageExtension(string? extension)
+        internal static string NormalizeImageExtension(string? extension)
         {
             if (string.IsNullOrWhiteSpace(extension))
             {
@@ -253,7 +329,8 @@ namespace StrmTool.Common
                 trimmed = "." + trimmed;
             }
 
-            return trimmed.Length > 1 && trimmed.Length <= 6 ? trimmed.ToLowerInvariant() : ".jpg";
+            var normalized = trimmed.ToLowerInvariant();
+            return AllowedImageExtensionSet.Contains(normalized) ? normalized : ".jpg";
         }
 
         private void RestoreChapters(BaseItem item, MediaSourceWithChapters mediaSourceWithChapters)

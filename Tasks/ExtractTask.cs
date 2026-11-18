@@ -1,17 +1,17 @@
-using MediaBrowser.Controller.Entities;
-using MediaBrowser.Controller.Library;
-using MediaBrowser.Controller.MediaEncoding;
-using MediaBrowser.Controller.Persistence;
-using MediaBrowser.Model.Logging;
-using MediaBrowser.Model.Tasks;
-using MediaBrowser.Model.Serialization;
-using StrmTool.Common;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.MediaEncoding;
+using MediaBrowser.Controller.Persistence;
+using MediaBrowser.Model.Logging;
+using MediaBrowser.Model.Serialization;
+using MediaBrowser.Model.Tasks;
+using StrmTool.Common;
 
 namespace StrmTool.Tasks
 {
@@ -36,11 +36,15 @@ namespace StrmTool.Tasks
             var mediaInfoManager = CreateMediaInfoManager();
             var processor = CreateFileProcessor(_mediaProbeManager, mediaInfoManager);
 
-            // 包含三类条目：缺少媒体信息、本地缺少 JSON 备份（含上次导出失败/备份被删除）、音乐库尚未探测过标签
+            // 包含三类条目：本地缺少 JSON 备份、缺少完整媒体信息、未锁定的音乐库曲目尚未探测过内嵌标签。
+            // 优先将具备本地 JSON 的条目排在队列前端，使本地恢复先行快速完成而不被慢速远程探测阻塞。
             var strmItems = MediaInfoHelper.GetAllStrmFiles(LibraryManager)
                 .Where(i => !MediaInfoHelper.HasJsonFile(i, mediaInfoManager) ||
-                            !MediaInfoHelper.HasCompleteMediaInfo(i, mediaInfoManager) ||
-                            (AudioMetadataHelper.IsMusicLibraryAudio(i, LibraryManager) && !mediaInfoManager.HasProbedAudioTagsInJson(i)))
+                            !MediaInfoHelper.HasCompleteMediaInfo(i, mediaInfoManager, LibraryManager) ||
+                            (AudioMetadataHelper.IsMusicLibraryAudio(i, LibraryManager) &&
+                             !i.IsLocked &&
+                             !mediaInfoManager.HasProbedAudioTagsInJson(i)))
+                .OrderByDescending(i => MediaInfoHelper.HasJsonFile(i, mediaInfoManager))
                 .ToList();
             Common.LogHelper.Info(Logger, $"{strmItems.Count} strm files need processing");
 
@@ -53,9 +57,10 @@ namespace StrmTool.Tasks
 
             int total = strmItems.Count;
             int processed = 0;
+            int succeeded = 0;
+            int skipped = 0;
+            int failed = 0;
             var progressLock = new object();
-            var config = Plugin.GetSafeConfiguration();
-            var delayMs = config.ProcessingDelayMs;
 
             // 用固定数量的 worker 消费队列，而不是为每个条目创建等待者：
             // 这样批量任务在全局探测信号量里最多只有 workerCount 个等待者，
@@ -67,43 +72,39 @@ namespace StrmTool.Tasks
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                // null 表示未尝试恢复（无 JSON）
-                ProcessResult? restoreResult = null;
-
-                // JSON 恢复是纯本地操作：不应用延迟
-                if (MediaInfoHelper.HasJsonFile(item, mediaInfoManager))
+                ProcessResult outcome;
+                try
                 {
-                    restoreResult = await processor.TryRestoreFromJsonAsync(item, cancellationToken).ConfigureAwait(false);
+                    var delayMs = Plugin.GetSafeConfiguration().ProcessingDelayMs;
+                    outcome = await processor.ProcessItemAsync(item, delayMs, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    Common.LogHelper.ErrorException(Logger, $"Unhandled error extracting media info for {item.Name}", ex);
+                    outcome = ProcessResult.Failed;
                 }
 
-                if (restoreResult == null || !restoreResult.Value.IsTerminalSuccess())
-                {
-                    // 数据库已完整时只在本地补备份，不延迟、不占远程探测槽
-                    var ensured = await processor.TryEnsureJsonFromDatabaseAsync(item, cancellationToken).ConfigureAwait(false);
-                    if (ensured == null)
-                    {
-                        // 只有真正需要远程探测时才进入延迟与全局探测槽
-                        var limiter = await ProcessingConcurrencyLimiter.AcquireAsync(cancellationToken).ConfigureAwait(false);
-                        try
-                        {
-                            if (delayMs > 0)
-                            {
-                                await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
-                            }
-
-                            await processor.ProbeAndExportAsync(item, cancellationToken).ConfigureAwait(false);
-                        }
-                        finally
-                        {
-                            ProcessingConcurrencyLimiter.Release(limiter);
-                        }
-                    }
-                }
-
-                // 一个项目完成最终处理后才报告一次进度；加锁保证单调递增
+                // 一个项目完成最终处理后才报告一次进度；加锁保证计数与进度单调递增
                 lock (progressLock)
                 {
                     processed++;
+                    if (outcome.IsSuccessOutcome())
+                    {
+                        succeeded++;
+                    }
+                    else if (outcome == ProcessResult.Skipped)
+                    {
+                        skipped++;
+                    }
+                    else
+                    {
+                        failed++;
+                    }
+
                     progress.Report(processed * 100.0 / total);
                 }
             }
@@ -117,10 +118,22 @@ namespace StrmTool.Tasks
             }
 
             var workers = Enumerable.Range(0, workerCount).Select(_ => WorkerAsync()).ToArray();
-            await Task.WhenAll(workers).ConfigureAwait(false);
+            try
+            {
+                await Task.WhenAll(workers).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                Common.LogHelper.Info(
+                    Logger,
+                    $"Extract task cancelled. Processed {processed}/{total} (Succeeded: {succeeded}, Skipped: {skipped}, Failed: {failed}).");
+                throw;
+            }
 
             progress.Report(100);
-            Common.LogHelper.Info(Logger, $"Task complete. Successfully processed {processed}/{total} strm files.");
+            Common.LogHelper.Info(
+                Logger,
+                $"Task complete. Total: {total}, Succeeded: {succeeded}, Skipped: {skipped}, Failed: {failed}.");
         }
 
         public override string Key => "StrmToolTask";
